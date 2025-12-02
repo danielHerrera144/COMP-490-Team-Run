@@ -39,6 +39,10 @@ app.use(express.static(__dirname));
 
 // ====== ROUTES FOR HTML PAGES ======
 app.get('/', (req, res) => {
+  res.sendFile(join(__dirname, 'fitquest.html'));
+});
+
+app.get('/', (req, res) => {
   res.sendFile(join(__dirname, 'login.html'));
 });
 
@@ -718,3 +722,4 @@ app.listen(PORT, HOST, () => {
   console.log(`🗄️  Database: ${MONGODB_URI.includes('localhost') ? 'Local' : 'Cloud'}`);
   console.log(`❤️  Health check: http://${HOST}:${PORT}/health`);
 });
+
