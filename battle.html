@@ -153,257 +153,244 @@
   </main>
 
   <script>
-    function setEnemyImage(enemyName) {
-    const container = document.getElementById("enemyImageContainer");
-
-  const enemyImageMap = {
-    "The Lazy Dragon": "lazyDragon.jpg",
-    "Procrastination Golem": "procrastinationGolem.jpg",
-    "Motivation Slayer": "motivationSlayer.jpg",
-    "Couch Potato Titan": "placeholder-titan.jpg"
-  };
+  // Auto-detect API URL (SAME AS OTHER PAGES)
+  const isLocalhost = window.location.hostname === 'localhost' || 
+                      window.location.hostname === '127.0.0.1';
+  const API_BASE = isLocalhost ? 'http://localhost:4000' : window.location.origin;
   
-  const imageFile = enemyImageMap[enemyName] || "placeholder-enemy.jpg";
-  const imageUrl = `/assets/${imageFile}`;
-  
-  container.innerHTML = `
-    <img src="${imageUrl}" 
-         alt="${enemyName}" 
-         class="w-48 h-48 mx-auto rounded-lg object-cover border-4 border-white/20 shadow-lg"
-         onerror="this.onerror=null; this.src='https://via.placeholder.com/192x192/666666/FFFFFF?text=${enemyName}'">
-  `;
-}
+  console.log('Battle Arena - API Base:', API_BASE);
 
-    const token = localStorage.getItem("token");
-    if (!token) {
-      alert("Please log in first!");
+  const token = localStorage.getItem("token");
+  if (!token) {
+    alert("Please log in first!");
+    window.location.href = "login.html";
+  }
+
+  let userData = null;
+  let currentBattle = null;
+
+  async function loadUserData() {
+    try {
+      const res = await fetch(`${API_BASE}/profile`, {
+        headers: { "Authorization": `Bearer ${token}` }
+      });
+      userData = await res.json();
+      updateStatsDisplay();
+      updateBattleHistory();
+    } catch (error) {
+      console.error("Error loading user data:", error);
       window.location.href = "login.html";
     }
+  }
 
-    let userData = null;
-    let currentBattle = null;
-
-    async function loadUserData() {
-      try {
-        const res = await fetch("http://localhost:4000/profile", {
-          headers: { "Authorization": `Bearer ${token}` }
-        });
-        userData = await res.json();
-        updateStatsDisplay();
-        updateBattleHistory();
-      } catch (error) {
-        console.error("Error loading user data:", error);
-        window.location.href = "login.html";
-      }
+  function updateStatsDisplay() {
+    if (!userData) return;
+    document.getElementById("userHeroName").textContent = userData.heroName;
+    document.getElementById("healthDisplay").textContent = `Health: ${userData.stats.health}/100`;
+    document.getElementById("strengthDisplay").textContent = `Strength: ${userData.stats.strength}`;
+    document.getElementById("goldDisplay").textContent = `Gold: ${userData.gold}`;
+    
+    // Update health warning
+    const healthWarning = document.getElementById("healthWarning");
+    if (userData.stats.health <= 20) {
+      healthWarning.textContent = "⚠️ Low health! Buy potions before battling.";
+      healthWarning.className = "text-xs text-red-400";
+    } else if (userData.stats.health <= 50) {
+      healthWarning.textContent = "⚠️ Health is getting low.";
+      healthWarning.className = "text-xs text-yellow-400";
+    } else {
+      healthWarning.textContent = "Healthy and ready for battle!";
+      healthWarning.className = "text-xs text-green-400";
     }
+  }
 
-    function updateStatsDisplay() {
-      if (!userData) return;
-      document.getElementById("userHeroName").textContent = userData.heroName;
-      document.getElementById("healthDisplay").textContent = `Health: ${userData.stats.health}/100`;
-      document.getElementById("strengthDisplay").textContent = `Strength: ${userData.stats.strength}`;
-      document.getElementById("goldDisplay").textContent = `Gold: ${userData.gold}`;
+  async function startBattle() {
+    try {
+      const res = await fetch(`${API_BASE}/battle/start`, {
+        method: "POST",
+        headers: { 
+          "Content-Type": "application/json",
+          "Authorization": `Bearer ${token}`
+        }
+      });
+      const result = await res.json();
       
-      // Update health warning
-      const healthWarning = document.getElementById("healthWarning");
-      if (userData.stats.health <= 20) {
-        healthWarning.textContent = "⚠️ Low health! Buy potions before battling.";
-        healthWarning.className = "text-xs text-red-400";
-      } else if (userData.stats.health <= 50) {
-        healthWarning.textContent = "⚠️ Health is getting low.";
-        healthWarning.className = "text-xs text-yellow-400";
+      if (!result.success) {
+        alert(result.message);
+        return;
+      }
+      
+      currentBattle = result.battle;
+      document.getElementById("battleStart").classList.add("hidden");
+      document.getElementById("battleActive").classList.remove("hidden");
+      updateBattleUI();
+      addBattleLog(result.message);
+      
+    } catch (error) {
+      console.error("Error starting battle:", error);
+      alert("Error starting battle!");
+    }
+  }
+
+  async function attackWithWorkout(workoutName, reps, weight) {
+    try {
+      const res = await fetch(`${API_BASE}/battle/attack`, {
+        method: "POST",
+        headers: { 
+          "Content-Type": "application/json",
+          "Authorization": `Bearer ${token}`
+        },
+        body: JSON.stringify({ workoutName, reps, weight })
+      });
+      const result = await res.json();
+      
+      currentBattle = result.battle;
+      userData.stats.health = result.userHealth;
+      
+      addBattleLog(result.message);
+      updateBattleUI();
+      updateStatsDisplay();
+      
+      if (result.battleResult) {
+        endBattle(result.battleResult);
+      }
+      
+    } catch (error) {
+      console.error("Error attacking:", error);
+    }
+  }
+
+  async function fleeBattle() {
+    try {
+      const res = await fetch(`${API_BASE}/battle/flee`, {
+        method: "POST",
+        headers: { "Authorization": `Bearer ${token}` }
+      });
+      const result = await res.json();
+      
+      addBattleLog(result.message);
+      userData.stats.health = result.newHealth;
+      updateStatsDisplay();
+      endBattle({
+        victory: false,
+        message: "You fled from battle!"
+      });
+      
+    } catch (error) {
+      console.error("Error fleeing:", error);
+    }
+  }
+
+  function updateBattleUI() {
+    if (!currentBattle) return;
+    
+    setEnemyImage(currentBattle.enemyName);
+    
+    document.getElementById("enemyName").textContent = currentBattle.enemyName;
+    document.getElementById("enemyDescription").textContent = currentBattle.enemyDescription;
+    document.getElementById("enemyHP").textContent = `${Math.max(0, currentBattle.enemyHP)}/${currentBattle.enemyMaxHP}`;
+    document.getElementById("userHP").textContent = `${Math.max(0, currentBattle.userHP)}/${currentBattle.userMaxHP}`;
+    
+    const enemyHPPercent = (currentBattle.enemyHP / currentBattle.enemyMaxHP) * 100;
+    const userHPPercent = (currentBattle.userHP / currentBattle.userMaxHP) * 100;
+    
+    document.getElementById("enemyHPBar").style.width = `${Math.max(0, enemyHPPercent)}%`;
+    document.getElementById("userHPBar").style.width = `${Math.max(0, userHPPercent)}%`;
+  }
+
+  function addBattleLog(message) {
+    const log = document.getElementById("battleLog");
+    const entry = document.createElement("div");
+    entry.className = "text-sm mb-1";
+    entry.textContent = `⚔️ ${message}`;
+    log.appendChild(entry);
+    log.scrollTop = log.scrollHeight;
+  }
+
+  function endBattle(result) {
+    document.getElementById("battleActive").classList.add("hidden");
+    document.getElementById("battleResult").classList.remove("hidden");
+    
+    const resultTitle = document.getElementById("resultTitle");
+    const resultMessage = document.getElementById("resultMessage");
+    
+    if (result.victory) {
+      resultTitle.textContent = "Victory! 🎉";
+      resultTitle.className = "font-bold text-xl mb-2 text-green-400";
+      resultMessage.textContent = result.message;
+    } else {
+      resultTitle.textContent = "Defeat! 💀";
+      resultTitle.className = "font-bold text-xl mb-2 text-red-400";
+      resultMessage.textContent = result.message;
+    }
+    
+    loadUserData(); // Refresh stats
+  }
+
+  function resetBattle() {
+    document.getElementById("battleResult").classList.add("hidden");
+    document.getElementById("battleStart").classList.remove("hidden");
+    document.getElementById("battleLog").innerHTML = '<div class="text-center opacity-60">Battle log will appear here...</div>';
+    currentBattle = null;
+  }
+
+  async function buyHealth(amount) {
+    try {
+      const res = await fetch(`${API_BASE}/shop/buy-health`, {
+        method: "POST",
+        headers: { 
+          "Content-Type": "application/json",
+          "Authorization": `Bearer ${token}`
+        },
+        body: JSON.stringify({ amount })
+      });
+      const result = await res.json();
+      
+      if (result.success) {
+        document.getElementById("shopResult").textContent = result.message;
+        document.getElementById("shopResult").className = "mt-3 text-center text-sm text-green-400";
+        loadUserData();
       } else {
-        healthWarning.textContent = "Healthy and ready for battle!";
-        healthWarning.className = "text-xs text-green-400";
+        document.getElementById("shopResult").textContent = result.message;
+        document.getElementById("shopResult").className = "mt-3 text-center text-sm text-red-400";
       }
+    } catch (error) {
+      console.error("Error buying health:", error);
     }
+  }
 
-    async function startBattle() {
-      try {
-        const res = await fetch("http://localhost:4000/battle/start", {
-          method: "POST",
-          headers: { 
-            "Content-Type": "application/json",
-            "Authorization": `Bearer ${token}`
-          }
-        });
-        const result = await res.json();
-        
-        if (!result.success) {
-          alert(result.message);
-          return;
-        }
-        
-        currentBattle = result.battle;
-        document.getElementById("battleStart").classList.add("hidden");
-        document.getElementById("battleActive").classList.remove("hidden");
-        updateBattleUI();
-        addBattleLog(result.message);
-        
-      } catch (error) {
-        console.error("Error starting battle:", error);
-        alert("Error starting battle!");
-      }
-    }
-
-    async function attackWithWorkout(workoutName, reps, weight) {
-      try {
-        const res = await fetch("http://localhost:4000/battle/attack", {
-          method: "POST",
-          headers: { 
-            "Content-Type": "application/json",
-            "Authorization": `Bearer ${token}`
-          },
-          body: JSON.stringify({ workoutName, reps, weight })
-        });
-        const result = await res.json();
-        
-        currentBattle = result.battle;
-        userData.stats.health = result.userHealth;
-        
-        addBattleLog(result.message);
-        updateBattleUI();
-        updateStatsDisplay();
-        
-        if (result.battleResult) {
-          endBattle(result.battleResult);
-        }
-        
-      } catch (error) {
-        console.error("Error attacking:", error);
-      }
-    }
-
-    async function fleeBattle() {
-      try {
-        const res = await fetch("http://localhost:4000/battle/flee", {
-          method: "POST",
-          headers: { "Authorization": `Bearer ${token}` }
-        });
-        const result = await res.json();
-        
-        addBattleLog(result.message);
-        userData.stats.health = result.newHealth;
-        updateStatsDisplay();
-        endBattle({
-          victory: false,
-          message: "You fled from battle!"
-        });
-        
-      } catch (error) {
-        console.error("Error fleeing:", error);
-      }
-    }
-
-    function updateBattleUI() {
-      if (!currentBattle) return;
-      
-      setEnemyImage(currentBattle.enemyName);
-      
-      document.getElementById("enemyName").textContent = currentBattle.enemyName;
-      document.getElementById("enemyDescription").textContent = currentBattle.enemyDescription;
-      document.getElementById("enemyHP").textContent = `${Math.max(0, currentBattle.enemyHP)}/${currentBattle.enemyMaxHP}`;
-      document.getElementById("userHP").textContent = `${Math.max(0, currentBattle.userHP)}/${currentBattle.userMaxHP}`;
-      
-      const enemyHPPercent = (currentBattle.enemyHP / currentBattle.enemyMaxHP) * 100;
-      const userHPPercent = (currentBattle.userHP / currentBattle.userMaxHP) * 100;
-      
-      document.getElementById("enemyHPBar").style.width = `${Math.max(0, enemyHPPercent)}%`;
-      document.getElementById("userHPBar").style.width = `${Math.max(0, userHPPercent)}%`;
-    }
-
-    function addBattleLog(message) {
-      const log = document.getElementById("battleLog");
-      const entry = document.createElement("div");
-      entry.className = "text-sm mb-1";
-      entry.textContent = `⚔️ ${message}`;
-      log.appendChild(entry);
-      log.scrollTop = log.scrollHeight;
-    }
-
-    function endBattle(result) {
-      document.getElementById("battleActive").classList.add("hidden");
-      document.getElementById("battleResult").classList.remove("hidden");
-      
-      const resultTitle = document.getElementById("resultTitle");
-      const resultMessage = document.getElementById("resultMessage");
-      
-      if (result.victory) {
-        resultTitle.textContent = "Victory! 🎉";
-        resultTitle.className = "font-bold text-xl mb-2 text-green-400";
-        resultMessage.textContent = result.message;
-      } else {
-        resultTitle.textContent = "Defeat! 💀";
-        resultTitle.className = "font-bold text-xl mb-2 text-red-400";
-        resultMessage.textContent = result.message;
-      }
-      
-      loadUserData(); // Refresh stats
-    }
-
-    function resetBattle() {
-      document.getElementById("battleResult").classList.add("hidden");
-      document.getElementById("battleStart").classList.remove("hidden");
-      document.getElementById("battleLog").innerHTML = '<div class="text-center opacity-60">Battle log will appear here...</div>';
-      currentBattle = null;
-    }
-
-    async function buyHealth(amount) {
-      try {
-        const res = await fetch("http://localhost:4000/shop/buy-health", {
-          method: "POST",
-          headers: { 
-            "Content-Type": "application/json",
-            "Authorization": `Bearer ${token}`
-          },
-          body: JSON.stringify({ amount })
-        });
-        const result = await res.json();
-        
-        if (result.success) {
-          document.getElementById("shopResult").textContent = result.message;
-          document.getElementById("shopResult").className = "mt-3 text-center text-sm text-green-400";
-          loadUserData();
-        } else {
-          document.getElementById("shopResult").textContent = result.message;
-          document.getElementById("shopResult").className = "mt-3 text-center text-sm text-red-400";
-        }
-      } catch (error) {
-        console.error("Error buying health:", error);
-      }
-    }
-
-    function updateBattleHistory() {
-      if (!userData || !userData.battles || userData.battles.length === 0) return;
-      
-      const container = document.getElementById("battleHistory");
-      const recentBattles = userData.battles.slice(-5).reverse();
-      
-      container.innerHTML = recentBattles.map(battle => `
-        <div class="flex justify-between items-center py-2 border-b border-white/10 last:border-0">
-          <div class="flex items-center gap-3">
-            <div class="w-8 h-8 rounded grid place-items-center text-sm ${
-              battle.victory ? 'bg-green-600' : 'bg-red-600'
-            }">
-              ${battle.victory ? '🎉' : '💀'}
-            </div>
-            <div>
-              <div class="font-semibold">vs ${battle.enemyName}</div>
-              <div class="text-xs opacity-70">
-                ${battle.victory ? 'Victory' : 'Defeat'} • ${new Date(battle.date).toLocaleDateString()}
-              </div>
-            </div>
+  function updateBattleHistory() {
+    if (!userData || !userData.battles || userData.battles.length === 0) return;
+    
+    const container = document.getElementById("battleHistory");
+    const recentBattles = userData.battles.slice(-5).reverse();
+    
+    container.innerHTML = recentBattles.map(battle => `
+      <div class="flex justify-between items-center py-2 border-b border-white/10 last:border-0">
+        <div class="flex items-center gap-3">
+          <div class="w-8 h-8 rounded grid place-items-center text-sm ${
+            battle.victory ? 'bg-green-600' : 'bg-red-600'
+          }">
+            ${battle.victory ? '🎉' : '💀'}
           </div>
-          <div class="text-right text-sm">
-            <div class="${battle.victory ? 'text-green-400' : 'text-red-400'}">
-              ${battle.victory ? 'WIN' : 'LOSE'}
+          <div>
+            <div class="font-semibold">vs ${battle.enemyName}</div>
+            <div class="text-xs opacity-70">
+              ${battle.victory ? 'Victory' : 'Defeat'} • ${new Date(battle.date).toLocaleDateString()}
             </div>
           </div>
         </div>
-      `).join('');
-    }
+        <div class="text-right text-sm">
+          <div class="${battle.victory ? 'text-green-400' : 'text-red-400'}">
+            ${battle.victory ? 'WIN' : 'LOSE'}
+          </div>
+        </div>
+      </div>
+    `).join('');
+  }
 
-    document.addEventListener("DOMContentLoaded", loadUserData);
-  </script>
+  document.addEventListener("DOMContentLoaded", loadUserData);
+</script>
 </body>
+
 </html>
