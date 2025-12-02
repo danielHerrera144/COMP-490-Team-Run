@@ -228,194 +228,208 @@
   </main>
 
   <script>
-    // Check if user is logged in
-    const token = localStorage.getItem("token");
-    
-    if (!token) {
-      alert("Please log in first!");
+  // Auto-detect API URL (SAME AS OTHER PAGES)
+  const isLocalhost = window.location.hostname === 'localhost' || 
+                      window.location.hostname === '127.0.0.1';
+  const API_BASE = isLocalhost ? 'http://localhost:4000' : window.location.origin;
+  
+  console.log('Workout - API Base:', API_BASE);
+
+  // Check if user is logged in
+  const token = localStorage.getItem("token");
+  
+  if (!token) {
+    alert("Please log in first!");
+    window.location.href = "login.html";
+  }
+
+  let userData = null;
+
+  // Load user data
+  async function loadUserData() {
+    try {
+      const res = await fetch(`${API_BASE}/profile`, {
+        headers: {
+          "Authorization": `Bearer ${token}`
+        }
+      });
+
+      if (!res.ok) {
+        throw new Error("Failed to load profile");
+      }
+
+      userData = await res.json();
+      
+      // Update UI with user data
+      document.getElementById("userHeroName").textContent = userData.heroName;
+      updateStatsDisplay();
+      updateRecentWorkouts();
+      updateWorkoutPreview();
+
+    } catch (error) {
+      console.error("Error loading user data:", error);
+      alert("Error loading profile. Please log in again.");
       window.location.href = "login.html";
     }
+  }
 
-    let userData = null;
+  function updateStatsDisplay() {
+    if (!userData) return;
+    
+    document.getElementById("strengthDisplay").textContent = `Strength: ${userData.stats.strength}`;
+    document.getElementById("staminaDisplay").textContent = `Stamina: ${userData.stats.stamina}`;
+    document.getElementById("agilityDisplay").textContent = `Agility: ${userData.stats.agility}`;
+    document.getElementById("levelDisplay").textContent = `Level: ${userData.level}`;
+    
+    const xpForNextLevel = userData.level * 100;
+    const currentLevelXP = userData.xp % 100;
+    document.getElementById("xpDisplay").textContent = `${currentLevelXP}/${xpForNextLevel} XP`;
+    
+    // Update progress bar
+    const progressPercent = (currentLevelXP / xpForNextLevel) * 100;
+    document.getElementById("levelProgress").style.width = `${progressPercent}%`;
+    document.getElementById("currentXP").textContent = `${currentLevelXP} XP`;
+    document.getElementById("nextLevel").textContent = `${xpForNextLevel} XP`;
+  }
 
-    // Load user data
-    async function loadUserData() {
-      try {
-        const res = await fetch("http://localhost:4000/profile", {
-          headers: {
-            "Authorization": `Bearer ${token}`
-          }
-        });
-
-        if (!res.ok) {
-          throw new Error("Failed to load profile");
-        }
-
-        userData = await res.json();
-        
-        // Update UI with user data
-        document.getElementById("userHeroName").textContent = userData.heroName;
-        updateStatsDisplay();
-        updateRecentWorkouts();
-        updateWorkoutPreview();
-
-      } catch (error) {
-        console.error("Error loading user data:", error);
-        alert("Error loading profile. Please log in again.");
-        window.location.href = "login.html";
-      }
-    }
-
-    function updateStatsDisplay() {
-      if (!userData) return;
+  function updateRecentWorkouts() {
+    if (!userData || !userData.workouts || userData.workouts.length === 0) return;
+    
+    const container = document.getElementById("recentWorkouts");
+    const recentWorkouts = userData.workouts.slice(-5).reverse(); // Last 5 workouts
+    
+    container.innerHTML = recentWorkouts.map(workout => {
+      // Parse workout name to get exercise name
+      const exerciseName = workout.name || "Workout";
       
-      document.getElementById("strengthDisplay").textContent = `Strength: ${userData.stats.strength}`;
-      document.getElementById("staminaDisplay").textContent = `Stamina: ${userData.stats.stamina}`;
-      document.getElementById("agilityDisplay").textContent = `Agility: ${userData.stats.agility}`;
-      document.getElementById("levelDisplay").textContent = `Level: ${userData.level}`;
-      
-      const xpForNextLevel = userData.level * 100;
-      const currentLevelXP = userData.xp % 100;
-      document.getElementById("xpDisplay").textContent = `${currentLevelXP}/${xpForNextLevel} XP`;
-      
-      // Update progress bar
-      const progressPercent = (currentLevelXP / xpForNextLevel) * 100;
-      document.getElementById("levelProgress").style.width = `${progressPercent}%`;
-      document.getElementById("currentXP").textContent = `${currentLevelXP} XP`;
-      document.getElementById("nextLevel").textContent = `${xpForNextLevel} XP`;
-    }
-
-    function updateRecentWorkouts() {
-      if (!userData || !userData.workouts || userData.workouts.length === 0) return;
-      
-      const container = document.getElementById("recentWorkouts");
-      const recentWorkouts = userData.workouts.slice(-5).reverse(); // Last 5 workouts
-      
-      container.innerHTML = recentWorkouts.map(workout => `
+      return `
         <div class="flex justify-between items-center py-3 border-b border-white/10 last:border-0">
           <div class="flex items-center gap-3">
             <div class="w-8 h-8 bg-indigo-600 rounded grid place-items-center text-sm">💪</div>
             <div>
-              <div class="font-semibold">${workout.name}</div>
+              <div class="font-semibold">${exerciseName}</div>
               <div class="text-xs opacity-70">
-                ${workout.reps} reps × ${workout.sets || 1} sets • ${workout.weight} lbs
+                ${workout.reps} reps • ${workout.weight || 0} lbs
               </div>
             </div>
           </div>
           <div class="text-right">
-            <div class="text-yellow-400 text-sm font-semibold">+${workout.xp} XP</div>
+            <div class="text-yellow-400 text-sm font-semibold">+${workout.xp || 0} XP</div>
             <div class="text-xs opacity-70">${new Date(workout.date).toLocaleDateString()}</div>
           </div>
         </div>
-      `).join('');
-    }
+      `;
+    }).join('');
+  }
 
-    function selectExercise(type, name, defaultReps, defaultWeight) {
-      document.getElementById("exerciseType").value = type;
-      document.getElementById("exerciseReps").value = defaultReps;
-      document.getElementById("exerciseWeight").value = defaultWeight;
-      updateWorkoutPreview();
-    }
+  function selectExercise(type, name, defaultReps, defaultWeight) {
+    document.getElementById("exerciseType").value = type;
+    document.getElementById("exerciseReps").value = defaultReps;
+    document.getElementById("exerciseWeight").value = defaultWeight;
+    updateWorkoutPreview();
+  }
 
-    function updateWorkoutPreview() {
-      const exercise = document.getElementById("exerciseType").value;
-      const reps = parseInt(document.getElementById("exerciseReps").value) || 0;
-      const weight = parseInt(document.getElementById("exerciseWeight").value) || 0;
-      const sets = parseInt(document.getElementById("exerciseSets").value) || 1;
-      
-      // Calculate XP based on exercise intensity
-      const baseXP = Math.floor((reps * weight * sets) / 10) + 10;
-      
-      // Determine stat bonus based on exercise type
-      let statBonus = "Strength";
-      let statColor = "text-green-400";
-      
-      if (exercise.includes('squats') || exercise.includes('pushups')) {
-        statBonus = "Strength";
-        statColor = "text-green-400";
-      } else if (exercise.includes('plank') || exercise.includes('crunches')) {
-        statBonus = "Stamina";
-        statColor = "text-blue-400";
-      } else if (exercise.includes('lunges') || exercise.includes('jumping')) {
-        statBonus = "Agility";
-        statColor = "text-purple-400";
-      }
-      
-      // Calculate battle damage
-      const battleDamage = Math.floor((reps * weight) / 5) + userData.stats.strength;
-      
-      document.getElementById("previewExercise").textContent = document.getElementById("exerciseType").selectedOptions[0].text;
-      document.getElementById("previewXP").textContent = `+${baseXP} XP`;
-      document.getElementById("previewStat").textContent = `+${statBonus}`;
-      document.getElementById("previewStat").className = statColor;
-      document.getElementById("previewDamage").textContent = `+${battleDamage} Damage`;
+  function updateWorkoutPreview() {
+    const exercise = document.getElementById("exerciseType").value;
+    const reps = parseInt(document.getElementById("exerciseReps").value) || 0;
+    const weight = parseInt(document.getElementById("exerciseWeight").value) || 0;
+    const sets = parseInt(document.getElementById("exerciseSets").value) || 1;
+    
+    // Calculate XP based on exercise intensity
+    const baseXP = Math.floor((reps * weight * sets) / 10) + 10;
+    
+    // Determine stat bonus based on exercise type
+    let statBonus = "Strength";
+    let statColor = "text-green-400";
+    
+    if (exercise.includes('squats') || exercise.includes('pushups')) {
+      statBonus = "Strength";
+      statColor = "text-green-400";
+    } else if (exercise.includes('plank') || exercise.includes('crunches')) {
+      statBonus = "Stamina";
+      statColor = "text-blue-400";
+    } else if (exercise.includes('lunges') || exercise.includes('jumping')) {
+      statBonus = "Agility";
+      statColor = "text-purple-400";
     }
+    
+    // Calculate battle damage (if userData is loaded)
+    let battleDamage = Math.floor((reps * weight) / 5);
+    if (userData && userData.stats) {
+      battleDamage += userData.stats.strength;
+    }
+    
+    document.getElementById("previewExercise").textContent = document.getElementById("exerciseType").selectedOptions[0].text;
+    document.getElementById("previewXP").textContent = `+${baseXP} XP`;
+    document.getElementById("previewStat").textContent = `+${statBonus}`;
+    document.getElementById("previewStat").className = statColor;
+    document.getElementById("previewDamage").textContent = `+${battleDamage} Damage`;
+  }
 
-    async function logQuickWorkout() {
-      const exerciseType = document.getElementById("exerciseType").value;
-      const exerciseName = document.getElementById("exerciseType").selectedOptions[0].text;
-      const reps = parseInt(document.getElementById("exerciseReps").value) || 0;
-      const weight = parseInt(document.getElementById("exerciseWeight").value) || 0;
-      const sets = parseInt(document.getElementById("exerciseSets").value) || 1;
+  async function logQuickWorkout() {
+    const exerciseType = document.getElementById("exerciseType").value;
+    const exerciseName = document.getElementById("exerciseType").selectedOptions[0].text;
+    const reps = parseInt(document.getElementById("exerciseReps").value) || 0;
+    const weight = parseInt(document.getElementById("exerciseWeight").value) || 0;
+    const sets = parseInt(document.getElementById("exerciseSets").value) || 1;
+    
+    if (reps <= 0) {
+      alert("Please enter a valid number of reps!");
+      return;
+    }
+    
+    try {
+      const res = await fetch(`${API_BASE}/log-workout`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "Authorization": `Bearer ${token}`
+        },
+        body: JSON.stringify({
+          name: exerciseName,
+          reps: reps,
+          weight: weight,
+          sets: sets
+        })
+      });
       
-      if (reps <= 0) {
-        alert("Please enter a valid number of reps!");
-        return;
-      }
+      const result = await res.json();
+      console.log('Workout log response:', result);
       
-      // Calculate XP
-      const xp = Math.floor((reps * weight * sets) / 10) + 10;
-      
-      try {
-        const res = await fetch("http://localhost:4000/log-workout", {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            "Authorization": `Bearer ${token}`
-          },
-          body: JSON.stringify({
-            name: exerciseName,
-            reps: reps * sets, // Total reps including sets
-            weight: weight,
-            xp: xp
-          })
-        });
-        
-        const result = await res.json();
-        
-        if (result.success) {
-          let message = `Workout logged! +${xp} XP earned!`;
-          if (result.leveledUp) {
-            message += ` 🎉 LEVEL UP! You are now level ${result.newLevel}!`;
-          }
-          alert(message);
-          
-          // Reload user data to show updates
-          loadUserData();
-          
-          // Reset form
-          document.getElementById("exerciseReps").value = "10";
-          document.getElementById("exerciseWeight").value = "0";
-          document.getElementById("exerciseSets").value = "3";
-          updateWorkoutPreview();
-          
-        } else {
-          alert("Failed to log workout. Please try again.");
+      if (result.success) {
+        let message = `Workout logged! +${result.xpEarned || 0} XP earned!`;
+        if (result.leveledUp) {
+          message += ` 🎉 LEVEL UP! You are now level ${result.newLevel}!`;
         }
-      } catch (error) {
-        console.error("Error logging workout:", error);
-        alert("Error logging workout. Please try again.");
+        alert(message);
+        
+        // Reload user data to show updates
+        loadUserData();
+        
+        // Reset form
+        document.getElementById("exerciseReps").value = "10";
+        document.getElementById("exerciseWeight").value = "0";
+        document.getElementById("exerciseSets").value = "3";
+        updateWorkoutPreview();
+        
+      } else {
+        alert(`Failed to log workout: ${result.message || "Unknown error"}`);
       }
+    } catch (error) {
+      console.error("Error logging workout:", error);
+      alert("Error logging workout. Please try again.");
     }
+  }
 
-    // Add event listeners for real-time preview updates
-    document.getElementById("exerciseType").addEventListener("change", updateWorkoutPreview);
-    document.getElementById("exerciseReps").addEventListener("input", updateWorkoutPreview);
-    document.getElementById("exerciseWeight").addEventListener("input", updateWorkoutPreview);
-    document.getElementById("exerciseSets").addEventListener("input", updateWorkoutPreview);
+  // Add event listeners for real-time preview updates
+  document.getElementById("exerciseType").addEventListener("change", updateWorkoutPreview);
+  document.getElementById("exerciseReps").addEventListener("input", updateWorkoutPreview);
+  document.getElementById("exerciseWeight").addEventListener("input", updateWorkoutPreview);
+  document.getElementById("exerciseSets").addEventListener("input", updateWorkoutPreview);
 
-    // Load user data when page loads
-    document.addEventListener("DOMContentLoaded", loadUserData);
-  </script>
+  // Load user data when page loads
+  document.addEventListener("DOMContentLoaded", loadUserData);
+</script>
 </body>
+
 </html>
