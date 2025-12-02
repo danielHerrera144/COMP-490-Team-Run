@@ -726,6 +726,6 @@ app.get("/level-progress", authenticateToken, async (req, res) => {
   }
 });
 
-app.listen(4000, () =>
-  console.log("✅ FitQuest backend with auth running at http://localhost:4000")
+app.listen(PORT, '0.0.0.0', () =>
+  console.log(`✅ FitQuest server running on port ${PORT}`)
 );
