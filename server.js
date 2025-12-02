@@ -6,30 +6,32 @@ import bcrypt from "bcrypt";
 import jwt from "jsonwebtoken";
 import { fileURLToPath } from 'url';
 import { dirname, join } from 'path';
-import fs from 'fs';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
 
-// ====== PORT CONFIGURATION (FIXED FOR RAILWAY) ======
+// ====== PORT CONFIGURATION ======
 const PORT = parseInt(process.env.PORT) || 4000;
-const HOST = '0.0.0.0'; // Railway requires this
+const HOST = '0.0.0.0';
 
 // ====== EXPRESS APP SETUP ======
-const app = express();
+const app = express(); // ONLY ONCE!
 
 // ====== CORS CONFIGURATION ======
-const corsOptions = {
-  origin: [
-    'http://localhost:4000',
-    'http://localhost:3000',
-    'https://*.up.railway.app'
-  ],
+app.use(cors({
+  origin: ['http://localhost:4000', 'http://localhost:3000', 'https://*.up.railway.app'],
   credentials: true,
-  optionsSuccessStatus: 200
-};
-app.use(cors(corsOptions));
+}));
 app.use(express.json());
+
+// ====== HEALTH CHECK (MUST BE EARLY!) ======
+app.get('/health', (req, res) => {
+  res.status(200).json({ 
+    status: 'healthy',
+    timestamp: new Date().toISOString(),
+    service: 'FitQuest API'
+  });
+});
 
 // ====== STATIC FILE SERVING ======
 app.use('/assets', express.static(join(__dirname, 'assets')));
@@ -52,20 +54,6 @@ app.get('/workout', (req, res) => {
   res.sendFile(join(__dirname, 'workout.html'));
 });
 
-// Serve HTML files from root
-app.use(express.static(__dirname));
-
-const app = express();
-
-// Health check endpoint - should be EARLY in your routes
-app.get('/health', (req, res) => {
-  res.status(200).json({ 
-    status: 'healthy',
-    timestamp: new Date().toISOString(),
-    service: 'FitQuest API'
-  });
-});
-
 // ====== DATABASE CONNECTION ======
 const MONGODB_URI = process.env.MONGODB_URI || 'mongodb://localhost:27017/fitquest';
 
@@ -74,38 +62,20 @@ mongoose.connect(MONGODB_URI, {
   useUnifiedTopology: true,
 })
 .then(() => console.log('✅ Connected to MongoDB'))
-.catch(err => console.error('❌ MongoDB connection error:', err));
+.catch(err => {
+  console.error('❌ MongoDB connection error:', err);
+  // In production, we might want to continue without DB
+  if (process.env.NODE_ENV === 'production') {
+    console.log('⚠️ Continuing without database connection...');
+  }
+});
 
-
-// ====== MONGOOSE CONNECTION ======
-mongoose.connect(process.env.MONGODB_URI || 'mongodb://localhost:27017/fitquest', {
-  useNewUrlParser: true,
-  useUnifiedTopology: true,
-})
-.then(() => console.log('✅ Connected to MongoDB'))
-.catch(err => console.error('❌ MongoDB connection error:', err));
-
-// ====== SERVE FRONTEND IN PRODUCTION ======
-// At the END of your file, before app.listen:
-if (process.env.NODE_ENV === 'production') {
-  // Serve static files from the frontend build directory
-  app.use(express.static(join(__dirname, 'frontend', 'dist')));
-  
-  // Handle SPA routing - return index.html for all routes
-  app.get('*', (req, res) => {
-    res.sendFile(join(__dirname, 'frontend', 'dist', 'index.html'));
-  });
-} else {
-  // In development, serve the HTML files from root
-  app.use(express.static(__dirname));
-} //
-
-// ====== GAME SCHEMAS ======  //
+// ====== GAME SCHEMAS ======
 const questSchema = new mongoose.Schema({
   title: String,
   description: String,
   type: { type: String, enum: ['workout', 'hydration', 'boss'] },
-  requirement: Number, // reps, cups, or boss HP
+  requirement: Number,
   reward: { xp: Number, gold: Number },
   completed: { type: Boolean, default: false }
 });
@@ -114,8 +84,8 @@ const battleSchema = new mongoose.Schema({
   enemyName: String,
   enemyHP: Number,
   enemyMaxHP: Number,
-  enemyDamage: Number,  // Add this
-  enemyDescription: String, // Add this
+  enemyDamage: Number,
+  enemyDescription: String,
   userHP: Number,
   userMaxHP: Number,
   completed: { type: Boolean, default: false },
@@ -149,16 +119,16 @@ const userSchema = new mongoose.Schema({
     xp: Number,
     date: { type: Date, default: Date.now }
   }],
-  activeQuests: [questSchema],        // ← Now questSchema is defined!
-  completedQuests: [questSchema],     // ← Now questSchema is defined!
-  battles: [battleSchema],            // ← Now battleSchema is defined!
+  activeQuests: [questSchema],
+  completedQuests: [questSchema],
+  battles: [battleSchema],
   inventory: [{ item: String, quantity: Number }]
 });
 
 const User = mongoose.model("User", userSchema);
 
-// Secret key for signing tokens (keep private!)
-const JWT_SECRET = process.env.JWT_SECRET;
+// Secret key for signing tokens
+const JWT_SECRET = process.env.JWT_SECRET || 'your_fallback_secret_for_development';
 
 // ====== GAME DATA ======
 const QUESTS = [
@@ -185,7 +155,6 @@ const QUESTS = [
   }
 ];
 
-// ====== ENEMY DATA ======
 const ENEMIES = [
   { 
     name: "The Lazy Dragon", 
@@ -233,7 +202,9 @@ const authenticateToken = (req, res, next) => {
   }
 };
 
-// ====== REGISTER ======
+// ====== API ENDPOINTS ======
+
+// Register
 app.post("/register", async (req, res) => {
   try {
     const { email, password, heroName } = req.body;
@@ -260,7 +231,7 @@ app.post("/register", async (req, res) => {
   }
 });
 
-// ====== LOGIN ======
+// Login
 app.post("/login", async (req, res) => {
   const { email, password } = req.body;
   const user = await User.findOne({ email });
@@ -274,7 +245,6 @@ app.post("/login", async (req, res) => {
     return res.status(400).json({ success: false, message: "Incorrect password" });
   }
 
-  // Generate JWT token
   const token = jwt.sign({ email: user.email, userId: user._id }, JWT_SECRET, { expiresIn: "2h" });
 
   res.json({
@@ -288,9 +258,7 @@ app.post("/login", async (req, res) => {
   });
 });
 
-// ====== PROTECTED ENDPOINTS ======
-
-// Get user profile
+// Profile
 app.get("/profile", authenticateToken, async (req, res) => {
   try {
     const user = await User.findOne({ email: req.user.email });
@@ -298,7 +266,6 @@ app.get("/profile", authenticateToken, async (req, res) => {
       return res.status(404).json({ message: "User not found" });
     }
     
-    // Don't send password back
     const userData = { ...user._doc };
     delete userData.password;
     
@@ -308,7 +275,7 @@ app.get("/profile", authenticateToken, async (req, res) => {
   }
 });
 
-// Log water intake
+// Log water
 app.post("/log-water", authenticateToken, async (req, res) => {
   try {
     const { cups } = req.body;
@@ -316,7 +283,6 @@ app.post("/log-water", authenticateToken, async (req, res) => {
     
     const user = await User.findOne({ email: req.user.email });
     
-    // Find today's water entry or create new one
     const todayEntry = user.waterIntake.find(entry => entry.date === today);
     
     if (todayEntry) {
@@ -325,7 +291,6 @@ app.post("/log-water", authenticateToken, async (req, res) => {
       user.waterIntake.push({ date: today, cups });
     }
     
-    // Add small XP bonus for hydration
     user.xp += Math.round(cups * 2);
     
     await user.save();
@@ -338,7 +303,6 @@ app.post("/log-water", authenticateToken, async (req, res) => {
 function calculateWorkoutXP(name, reps, weight, sets = 1) {
   const baseXP = Math.floor((reps * weight * sets) / 10) + 10;
   
-  // Bonus XP for certain exercises
   let bonus = 0;
   if (name.toLowerCase().includes('squat')) bonus = 5;
   if (name.toLowerCase().includes('push')) bonus = 8;
@@ -347,27 +311,24 @@ function calculateWorkoutXP(name, reps, weight, sets = 1) {
   return baseXP + bonus;
 }
 
-// Update the log-workout endpoint to use the calculation
+// Log workout
 app.post("/log-workout", authenticateToken, async (req, res) => {
   try {
     const { name, reps, weight, sets = 1 } = req.body;
     const user = await User.findOne({ email: req.user.email });
     
-    // Calculate XP based on exercise
     const xp = calculateWorkoutXP(name, reps, weight, sets);
     
     user.workouts.push({
       name,
-      reps: reps * sets, // Total reps
+      reps: reps * sets,
       weight,
       xp,
       date: new Date()
     });
     
-    // Add XP and potentially level up
     user.xp += xp;
     
-    // Simple level up system (100 XP per level)
     const newLevel = Math.floor(user.xp / 100) + 1;
     let leveledUp = false;
     
@@ -375,7 +336,6 @@ app.post("/log-workout", authenticateToken, async (req, res) => {
       user.level = newLevel;
       leveledUp = true;
       
-      // Increase stats on level up based on workout type
       if (name.toLowerCase().includes('squat') || name.toLowerCase().includes('push')) {
         user.stats.strength += 2;
       } else if (name.toLowerCase().includes('plank') || name.toLowerCase().includes('crunch')) {
@@ -398,7 +358,7 @@ app.post("/log-workout", authenticateToken, async (req, res) => {
   }
 });
 
-// Get today's water intake
+// Today's water
 app.get("/today-water", authenticateToken, async (req, res) => {
   try {
     const today = new Date().toISOString().split('T')[0];
@@ -407,20 +367,17 @@ app.get("/today-water", authenticateToken, async (req, res) => {
     const todayEntry = user.waterIntake.find(entry => entry.date === today);
     const cups = todayEntry ? todayEntry.cups : 0;
     
-    res.json({ cups, goal: 8 }); // 8 cups goal
+    res.json({ cups, goal: 8 });
   } catch (err) {
     res.status(500).json({ message: "Server error" });
   }
 });
 
-// ====== GAME ENDPOINTS ======
-
-// Get active quests
+// Quests
 app.get("/quests", authenticateToken, async (req, res) => {
   try {
     const user = await User.findOne({ email: req.user.email });
     
-    // Assign new quests if none active
     if (user.activeQuests.length === 0) {
       user.activeQuests = QUESTS.map(quest => ({...quest}));
       await user.save();
@@ -432,7 +389,7 @@ app.get("/quests", authenticateToken, async (req, res) => {
   }
 });
 
-// Check quest progress
+// Quest progress
 app.get("/quests/progress", authenticateToken, async (req, res) => {
   try {
     const user = await User.findOne({ email: req.user.email });
@@ -462,7 +419,7 @@ app.get("/quests/progress", authenticateToken, async (req, res) => {
   }
 });
 
-// Start enemy battle
+// Battle start
 app.post("/battle/start", authenticateToken, async (req, res) => {
   try {
     const user = await User.findOne({ email: req.user.email });
@@ -474,7 +431,6 @@ app.post("/battle/start", authenticateToken, async (req, res) => {
       });
     }
     
-    // Don't start battle if health is too low
     if (user.stats.health <= 10) {
       return res.status(400).json({ 
         success: false, 
@@ -482,7 +438,6 @@ app.post("/battle/start", authenticateToken, async (req, res) => {
       });
     }
     
-    // Determine enemy based on level, with bounds checking
     const randomIndex = Math.floor(Math.random() * ENEMIES.length);
     const enemy = ENEMIES[randomIndex];
     
@@ -490,8 +445,8 @@ app.post("/battle/start", authenticateToken, async (req, res) => {
       enemyName: enemy.name,
       enemyHP: enemy.hp,
       enemyMaxHP: enemy.hp,
-      enemyDamage: enemy.damage,  // Add this
-      enemyDescription: enemy.description, // Add this
+      enemyDamage: enemy.damage,
+      enemyDescription: enemy.description,
       userHP: user.stats.health,
       userMaxHP: user.stats.health,
       completed: false,
@@ -518,17 +473,16 @@ app.post("/battle/start", authenticateToken, async (req, res) => {
   }
 });
 
-// Attack enemy with workout
+// Battle attack
 app.post("/battle/attack", authenticateToken, async (req, res) => {
   try {
-    const { name, reps, weight } = req.body; // Changed from workoutName to name
+    const { name, reps, weight } = req.body;
     const user = await User.findOne({ email: req.user.email });
     
     if (!user) {
       return res.status(404).json({ success: false, message: "User not found" });
     }
     
-    // Get the most recent battle that's not completed
     const activeBattle = user.battles
       .filter(battle => !battle.completed)
       .pop();
@@ -540,41 +494,35 @@ app.post("/battle/attack", authenticateToken, async (req, res) => {
       });
     }
     
-    // Calculate damage based on workout and stats
     const baseDamage = Math.floor((reps * (weight || 1)) / 10) + user.stats.strength;
     activeBattle.enemyHP -= baseDamage;
     
-    // Enemy counter attack
-    const enemyDamage = activeBattle.enemyDamage || 10; // Default if not set
+    const enemyDamage = activeBattle.enemyDamage || 10;
     user.stats.health -= enemyDamage;
     activeBattle.userHP = user.stats.health;
     
-    // Ensure health doesn't go below 0
     if (user.stats.health < 0) user.stats.health = 0;
     if (activeBattle.enemyHP < 0) activeBattle.enemyHP = 0;
     
-    // Check if battle ended
     let battleResult = null;
     
     if (activeBattle.enemyHP <= 0) {
       activeBattle.completed = true;
       activeBattle.victory = true;
       
-      // Find enemy reward
       const enemy = ENEMIES.find(e => e.name === activeBattle.enemyName) || ENEMIES[0];
       const reward = enemy.reward || { xp: 50, gold: 25 };
       
       user.xp += reward.xp;
       user.gold += reward.gold;
       
-      // Check level up
       const newLevel = Math.floor(user.xp / 100) + 1;
       if (newLevel > user.level) {
         user.level = newLevel;
         user.stats.strength += 2;
         user.stats.stamina += 2;
         user.stats.agility += 1;
-        user.stats.health += 20; // Bonus health on level up
+        user.stats.health += 20;
       }
       
       battleResult = {
@@ -616,12 +564,12 @@ app.post("/battle/attack", authenticateToken, async (req, res) => {
   }
 });
 
-// Buy health potion
+// Buy health
 app.post("/shop/buy-health", authenticateToken, async (req, res) => {
   try {
     const { amount } = req.body;
     const user = await User.findOne({ email: req.user.email });
-    const cost = amount * 10; // 10 gold per health point
+    const cost = amount * 10;
     
     if (user.gold < cost) {
       return res.status(400).json({ 
@@ -648,7 +596,7 @@ app.post("/shop/buy-health", authenticateToken, async (req, res) => {
   }
 });
 
-// Flee from battle
+// Flee battle
 app.post("/battle/flee", authenticateToken, async (req, res) => {
   try {
     const user = await User.findOne({ email: req.user.email });
@@ -661,7 +609,6 @@ app.post("/battle/flee", authenticateToken, async (req, res) => {
     activeBattle.completed = true;
     activeBattle.fled = true;
     
-    // Small health penalty for fleeing
     user.stats.health -= 5;
     
     await user.save();
@@ -677,7 +624,7 @@ app.post("/battle/flee", authenticateToken, async (req, res) => {
   }
 });
 
-// Get user's recent activities
+// Recent activities
 app.get("/recent-activities", authenticateToken, async (req, res) => {
   try {
     const user = await User.findOne({ email: req.user.email });
@@ -686,10 +633,6 @@ app.get("/recent-activities", authenticateToken, async (req, res) => {
       return res.status(404).json({ message: "User not found" });
     }
     
-    // Combine workouts and battles into recent activities
-    const recentActivities = [];
-    
-    // Get last 5 workouts
     const recentWorkouts = user.workouts
       .sort((a, b) => new Date(b.date) - new Date(a.date))
       .slice(0, 5)
@@ -702,7 +645,6 @@ app.get("/recent-activities", authenticateToken, async (req, res) => {
         icon: "🏋️"
       }));
     
-    // Get last 5 battles
     const recentBattles = user.battles
       .sort((a, b) => new Date(b.date) - new Date(a.date))
       .slice(0, 5)
@@ -710,13 +652,12 @@ app.get("/recent-activities", authenticateToken, async (req, res) => {
         type: "battle",
         title: battle.enemyName || "Enemy",
         details: battle.victory ? "Victory!" : battle.fled ? "Fled" : "Defeated",
-        xp: battle.victory ? 50 : 10, // Example XP
+        xp: battle.victory ? 50 : 10,
         date: battle.date,
         icon: "⚔️",
         result: battle.victory ? "victory" : "defeat"
       }));
     
-    // Get last 5 water logs
     const recentWaterLogs = user.waterIntake
       .sort((a, b) => new Date(b.date) - new Date(a.date))
       .slice(0, 3)
@@ -729,10 +670,9 @@ app.get("/recent-activities", authenticateToken, async (req, res) => {
         icon: "💧"
       }));
     
-    // Combine all activities and sort by date
     const allActivities = [...recentWorkouts, ...recentBattles, ...recentWaterLogs]
       .sort((a, b) => new Date(b.date) - new Date(a.date))
-      .slice(0, 10); // Get 10 most recent
+      .slice(0, 10);
     
     res.json({ activities: allActivities });
   } catch (err) {
@@ -741,7 +681,7 @@ app.get("/recent-activities", authenticateToken, async (req, res) => {
   }
 });
 
-// Get level progress
+// Level progress
 app.get("/level-progress", authenticateToken, async (req, res) => {
   try {
     const user = await User.findOne({ email: req.user.email });
@@ -752,7 +692,7 @@ app.get("/level-progress", authenticateToken, async (req, res) => {
     
     const currentXP = user.xp;
     const currentLevel = user.level;
-    const xpForNextLevel = currentLevel * 100; // Simple formula: level * 100 XP needed
+    const xpForNextLevel = currentLevel * 100;
     const xpForCurrentLevel = (currentLevel - 1) * 100;
     const xpProgress = currentXP - xpForCurrentLevel;
     const progressPercent = (xpProgress / 100) * 100;
@@ -771,16 +711,10 @@ app.get("/level-progress", authenticateToken, async (req, res) => {
   }
 });
 
-
-// ====== START SERVER (FIXED FOR RAILWAY) ======
+// ====== START SERVER ======
 app.listen(PORT, HOST, () => {
   console.log(`🚀 FitQuest server running at http://${HOST}:${PORT}`);
   console.log(`📁 Environment: ${process.env.NODE_ENV || 'development'}`);
   console.log(`🗄️  Database: ${MONGODB_URI.includes('localhost') ? 'Local' : 'Cloud'}`);
+  console.log(`❤️  Health check: http://${HOST}:${PORT}/health`);
 });
-
-app.listen(PORT, '0.0.0.0', () =>
-  console.log(`✅ FitQuest server running on port ${PORT}`)
-);
-
-
