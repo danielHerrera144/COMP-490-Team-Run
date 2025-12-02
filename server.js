@@ -38,12 +38,18 @@ app.use('/assets', express.static(join(__dirname, 'assets')));
 app.use(express.static(__dirname));
 
 // ====== ROUTES FOR HTML PAGES ======
+// Main landing page
 app.get('/', (req, res) => {
   res.sendFile(join(__dirname, 'fitquest.html'));
 });
 
-app.get('/', (req, res) => {
+// Login page
+app.get('/login', (req, res) => {
   res.sendFile(join(__dirname, 'login.html'));
+});
+
+app.get('/signup', (req, res) => {
+  res.sendFile(join(__dirname, 'signup.html'));
 });
 
 app.get('/dashboard', (req, res) => {
@@ -722,4 +728,5 @@ app.listen(PORT, HOST, () => {
   console.log(`🗄️  Database: ${MONGODB_URI.includes('localhost') ? 'Local' : 'Cloud'}`);
   console.log(`❤️  Health check: http://${HOST}:${PORT}/health`);
 });
+
 
