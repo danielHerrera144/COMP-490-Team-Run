@@ -20,30 +20,63 @@
     </button>
 
     <p class="text-xs opacity-60 mt-3 text-center">
-      Don’t have an account? <a href="signup.html" class="underline">Sign up</a>
+      Don't have an account? <a href="signup.html" class="underline">Sign up</a>
     </p>
   </div>
 
   <script>
+    // Auto-detect API URL (same as signup.html)
+    const isLocalhost = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1';
+    const API_BASE = isLocalhost ? 'http://localhost:4000' : window.location.origin;
+    
+    console.log('API Base URL:', API_BASE);
+
     async function loginUser() {
       const email = document.getElementById("email").value;
       const password = document.getElementById("password").value;
 
-      const res = await fetch("http://localhost:4000/login", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ email, password }),
-      });
+      // Validate inputs
+      if (!email || !password) {
+        alert("❌ Please enter both email and password");
+        return;
+      }
 
-      const data = await res.json();
-      if (data.success) {
-        localStorage.setItem("token", data.token); // store JWT
-        alert("✅ Login successful!");
-        window.location.href = "dashboard.html"; // create later if you want
-      } else {
-        alert("❌ " + data.message);
+      console.log('Attempting login to:', `${API_BASE}/login`);
+      console.log('With email:', email);
+
+      try {
+        const res = await fetch(`${API_BASE}/login`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ email, password }),
+        });
+
+        const data = await res.json();
+        console.log('Login response:', data);
+        
+        if (data.success) {
+          // Store the JWT token
+          localStorage.setItem("token", data.token);
+          localStorage.setItem("heroName", data.heroName);
+          localStorage.setItem("userStats", JSON.stringify(data.stats || {}));
+          
+          alert("✅ Login successful! Welcome, " + data.heroName);
+          window.location.href = "dashboard.html";
+        } else {
+          alert("❌ " + (data.message || "Login failed"));
+        }
+      } catch (error) {
+        console.error('Login error:', error);
+        alert("❌ Network error. Please check your connection.");
       }
     }
+
+    // Allow Enter key to submit
+    document.addEventListener('keypress', function(e) {
+      if (e.key === 'Enter') {
+        loginUser();
+      }
+    });
   </script>
 </body>
 </html>
