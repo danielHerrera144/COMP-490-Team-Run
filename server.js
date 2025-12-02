@@ -55,6 +55,17 @@ app.get('/workout', (req, res) => {
 // Serve HTML files from root
 app.use(express.static(__dirname));
 
+const app = express();
+
+// Health check endpoint - should be EARLY in your routes
+app.get('/health', (req, res) => {
+  res.status(200).json({ 
+    status: 'healthy',
+    timestamp: new Date().toISOString(),
+    service: 'FitQuest API'
+  });
+});
+
 // ====== DATABASE CONNECTION ======
 const MONGODB_URI = process.env.MONGODB_URI || 'mongodb://localhost:27017/fitquest';
 
@@ -760,10 +771,6 @@ app.get("/level-progress", authenticateToken, async (req, res) => {
   }
 });
 
-// ====== HEALTH CHECK ENDPOINT (REQUIRED FOR RAILWAY) ======
-app.get('/health', (req, res) => {
-  res.json({ status: 'OK', timestamp: new Date().toISOString() });
-});
 
 // ====== START SERVER (FIXED FOR RAILWAY) ======
 app.listen(PORT, HOST, () => {
@@ -775,4 +782,5 @@ app.listen(PORT, HOST, () => {
 app.listen(PORT, '0.0.0.0', () =>
   console.log(`✅ FitQuest server running on port ${PORT}`)
 );
+
 
