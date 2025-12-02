@@ -145,29 +145,59 @@
     </section>
   </main>
 
-  <script>
+ <script>
+  // Auto-detect API URL (SAME AS LOGIN/SIGNUP)
+  const isLocalhost = window.location.hostname === 'localhost' || 
+                      window.location.hostname === '127.0.0.1';
+  const API_BASE = isLocalhost ? 'http://localhost:4000' : window.location.origin;
+  
+  console.log('Dashboard loading...');
+  console.log('API Base:', API_BASE);
+
   // Check if user is logged in
   const token = localStorage.getItem("token");
+  const heroName = localStorage.getItem("heroName");
   
   if (!token) {
+    console.error('No token found, redirecting to login');
     alert("Please log in first!");
     window.location.href = "login.html";
+  }
+
+  // Display hero name immediately from localStorage
+  if (heroName) {
+    document.getElementById("userHeroName").textContent = heroName;
+    document.getElementById("heroName").textContent = heroName;
   }
 
   // Load user data
   async function loadUserData() {
     try {
-      const res = await fetch("http://localhost:4000/profile", {
+      console.log('Loading profile from:', `${API_BASE}/profile`);
+      
+      const res = await fetch(`${API_BASE}/profile`, {
         headers: {
           "Authorization": `Bearer ${token}`
         }
       });
 
+      console.log('Profile response status:', res.status);
+      
+      if (res.status === 401) {
+        // Token expired or invalid
+        console.error('Token invalid or expired');
+        localStorage.removeItem("token");
+        alert("Session expired. Please log in again.");
+        window.location.href = "login.html";
+        return;
+      }
+
       if (!res.ok) {
-        throw new Error("Failed to load profile");
+        throw new Error(`HTTP ${res.status}: ${res.statusText}`);
       }
 
       const user = await res.json();
+      console.log('User data loaded:', user);
       
       // Update UI with user data
       document.getElementById("userHeroName").textContent = user.heroName;
@@ -191,15 +221,29 @@
 
     } catch (error) {
       console.error("Error loading user data:", error);
-      alert("Error loading profile. Please log in again.");
-      logout();
+      
+      // Fallback to localStorage data if API fails
+      const fallbackHeroName = localStorage.getItem("heroName");
+      const fallbackStats = JSON.parse(localStorage.getItem("userStats") || '{}');
+      
+      if (fallbackHeroName) {
+        document.getElementById("heroName").textContent = fallbackHeroName + " (Offline)";
+      }
+      
+      if (fallbackStats.strength) {
+        document.getElementById("strengthStat").textContent = fallbackStats.strength;
+        document.getElementById("staminaStat").textContent = fallbackStats.stamina;
+        document.getElementById("agilityStat").textContent = fallbackStats.agility;
+      }
+      
+      alert("Connected but some data may be delayed. The app is still functional.");
     }
   }
 
   // Load recent activities
   async function loadRecentActivities() {
     try {
-      const res = await fetch("http://localhost:4000/recent-activities", {
+      const res = await fetch(`${API_BASE}/recent-activities`, {
         headers: {
           "Authorization": `Bearer ${token}`
         }
@@ -261,7 +305,7 @@
   // Load today's hydration
   async function loadTodayHydration() {
     try {
-      const res = await fetch("http://localhost:4000/today-water", {
+      const res = await fetch(`${API_BASE}/today-water`, {
         headers: {
           "Authorization": `Bearer ${token}`
         }
@@ -295,7 +339,7 @@
   // Load level progress
   async function loadLevelProgress() {
     try {
-      const res = await fetch("http://localhost:4000/level-progress", {
+      const res = await fetch(`${API_BASE}/level-progress`, {
         headers: {
           "Authorization": `Bearer ${token}`
         }
@@ -329,10 +373,10 @@
     }
   }
 
-  // Log water intake (UPDATED - makes actual API call)
+  // Log water intake
   async function logWater(cups) {
     try {
-      const res = await fetch("http://localhost:4000/log-water", {
+      const res = await fetch(`${API_BASE}/log-water`, {
         method: "POST",
         headers: {
           "Authorization": `Bearer ${token}`,
@@ -380,47 +424,49 @@
   // Game functions
   async function loadQuests() {
     try {
-      const res = await fetch("http://localhost:4000/quests", {
+      const res = await fetch(`${API_BASE}/quests`, {
         headers: { "Authorization": `Bearer ${token}` }
       });
       const quests = await res.json();
       
-      const progressRes = await fetch("http://localhost:4000/quests/progress", {
+      const progressRes = await fetch(`${API_BASE}/quests/progress`, {
         headers: { "Authorization": `Bearer ${token}` }
       });
       const questsWithProgress = await progressRes.json();
       
       const container = document.getElementById("questsContainer");
-      container.innerHTML = questsWithProgress.map(quest => `
-        <div class="stat-card">
-          <div class="flex justify-between items-start mb-2">
-            <div>
-              <h4 class="font-semibold">${quest.title}</h4>
-              <p class="text-sm opacity-70">${quest.description}</p>
+      if (container) {
+        container.innerHTML = questsWithProgress.map(quest => `
+          <div class="stat-card">
+            <div class="flex justify-between items-start mb-2">
+              <div>
+                <h4 class="font-semibold">${quest.title}</h4>
+                <p class="text-sm opacity-70">${quest.description}</p>
+              </div>
+              <span class="badge ${quest.completed ? 'bg-green-600' : 'bg-yellow-600'}">
+                ${quest.completed ? 'Ready!' : 'In Progress'}
+              </span>
             </div>
-            <span class="badge ${quest.completed ? 'bg-green-600' : 'bg-yellow-600'}">
-              ${quest.completed ? 'Ready!' : 'In Progress'}
-            </span>
-          </div>
-          <div class="mb-2">
-            <div class="flex justify-between text-xs mb-1">
-              <span>Progress: ${quest.completed}/${quest.requirement}</span>
-              <span>${Math.round(quest.progress * 100)}%</span>
+            <div class="mb-2">
+              <div class="flex justify-between text-xs mb-1">
+                <span>Progress: ${quest.completed}/${quest.requirement}</span>
+                <span>${Math.round(quest.progress * 100)}%</span>
+              </div>
+              <div class="progress-bar">
+                <div class="h-full bg-blue-500" style="width: ${quest.progress * 100}%"></div>
+              </div>
             </div>
-            <div class="progress-bar">
-              <div class="h-full bg-blue-500" style="width: ${quest.progress * 100}%"></div>
+            <div class="flex justify-between items-center">
+              <span class="text-sm">Reward: ${quest.reward.xp} XP, ${quest.reward.gold} Gold</span>
+              <button onclick="claimQuest('${quest._id}')" 
+                      class="bg-green-600 hover:bg-green-500 px-3 py-1 rounded text-sm ${!quest.completed ? 'opacity-50 cursor-not-allowed' : ''}"
+                      ${!quest.completed ? 'disabled' : ''}>
+                Claim
+              </button>
             </div>
           </div>
-          <div class="flex justify-between items-center">
-            <span class="text-sm">Reward: ${quest.reward.xp} XP, ${quest.reward.gold} Gold</span>
-            <button onclick="claimQuest('${quest._id}')" 
-                    class="bg-green-600 hover:bg-green-500 px-3 py-1 rounded text-sm ${!quest.completed ? 'opacity-50 cursor-not-allowed' : ''}"
-                    ${!quest.completed ? 'disabled' : ''}>
-              Claim
-            </button>
-          </div>
-        </div>
-      `).join('');
+        `).join('');
+      }
     } catch (error) {
       console.error("Error loading quests:", error);
     }
@@ -428,7 +474,7 @@
 
   async function claimQuest(questId) {
     try {
-      const res = await fetch(`http://localhost:4000/quests/claim/${questId}`, {
+      const res = await fetch(`${API_BASE}/quests/claim/${questId}`, {
         method: "POST",
         headers: { "Authorization": `Bearer ${token}` }
       });
@@ -449,7 +495,7 @@
     const price = prices[itemType];
     
     try {
-      const userRes = await fetch("http://localhost:4000/profile", {
+      const userRes = await fetch(`${API_BASE}/profile`, {
         headers: { "Authorization": `Bearer ${token}` }
       });
       const user = await userRes.json();
@@ -468,6 +514,11 @@
   // Logout function
   function logout() {
     localStorage.removeItem("token");
+    localStorage.removeItem("heroName");
+    localStorage.removeItem("userStats");
+    localStorage.removeItem("userLevel");
+    localStorage.removeItem("userGold");
+    localStorage.removeItem("userEmail");
     window.location.href = "login.html";
   }
 
@@ -521,102 +572,64 @@
 </section>
 
 <script>
-  // Game functions
-async function loadQuests() {
-  try {
-    const res = await fetch("http://localhost:4000/quests", {
-      headers: { "Authorization": `Bearer ${token}` }
-    });
-    const quests = await res.json();
-    
-    const progressRes = await fetch("http://localhost:4000/quests/progress", {
-      headers: { "Authorization": `Bearer ${token}` }
-    });
-    const questsWithProgress = await progressRes.json();
-    
-    const container = document.getElementById("questsContainer");
-    container.innerHTML = questsWithProgress.map(quest => `
-      <div class="stat-card">
-        <div class="flex justify-between items-start mb-2">
-          <div>
-            <h4 class="font-semibold">${quest.title}</h4>
-            <p class="text-sm opacity-70">${quest.description}</p>
+  // Game functions - Use the same API_BASE from above
+  async function loadQuests() {
+    try {
+      const res = await fetch(`${API_BASE}/quests`, {
+        headers: { "Authorization": `Bearer ${token}` }
+      });
+      const quests = await res.json();
+      
+      const progressRes = await fetch(`${API_BASE}/quests/progress`, {
+        headers: { "Authorization": `Bearer ${token}` }
+      });
+      const questsWithProgress = await progressRes.json();
+      
+      const container = document.getElementById("questsContainer");
+      if (container) {
+        container.innerHTML = questsWithProgress.map(quest => `
+          <div class="stat-card">
+            <div class="flex justify-between items-start mb-2">
+              <div>
+                <h4 class="font-semibold">${quest.title}</h4>
+                <p class="text-sm opacity-70">${quest.description}</p>
+              </div>
+              <span class="badge ${quest.completed ? 'bg-green-600' : 'bg-yellow-600'}">
+                ${quest.completed ? 'Ready!' : 'In Progress'}
+              </span>
+            </div>
+            <div class="mb-2">
+              <div class="flex justify-between text-xs mb-1">
+                <span>Progress: ${quest.completed}/${quest.requirement}</span>
+                <span>${Math.round(quest.progress * 100)}%</span>
+              </div>
+              <div class="progress-bar">
+                <div class="h-full bg-blue-500" style="width: ${quest.progress * 100}%"></div>
+              </div>
+            </div>
+            <div class="flex justify-between items-center">
+              <span class="text-sm">Reward: ${quest.reward.xp} XP, ${quest.reward.gold} Gold</span>
+              <button onclick="claimQuest('${quest._id}')" 
+                      class="bg-green-600 hover:bg-green-500 px-3 py-1 rounded text-sm ${!quest.completed ? 'opacity-50 cursor-not-allowed' : ''}"
+                      ${!quest.completed ? 'disabled' : ''}>
+                Claim
+              </button>
+            </div>
           </div>
-          <span class="badge ${quest.completed ? 'bg-green-600' : 'bg-yellow-600'}">
-            ${quest.completed ? 'Ready!' : 'In Progress'}
-          </span>
-        </div>
-        <div class="mb-2">
-          <div class="flex justify-between text-xs mb-1">
-            <span>Progress: ${quest.completed}/${quest.requirement}</span>
-            <span>${Math.round(quest.progress * 100)}%</span>
-          </div>
-          <div class="progress-bar">
-            <div class="h-full bg-blue-500" style="width: ${quest.progress * 100}%"></div>
-          </div>
-        </div>
-        <div class="flex justify-between items-center">
-          <span class="text-sm">Reward: ${quest.reward.xp} XP, ${quest.reward.gold} Gold</span>
-          <button onclick="claimQuest('${quest._id}')" 
-                  class="bg-green-600 hover:bg-green-500 px-3 py-1 rounded text-sm ${!quest.completed ? 'opacity-50 cursor-not-allowed' : ''}"
-                  ${!quest.completed ? 'disabled' : ''}>
-            Claim
-          </button>
-        </div>
-      </div>
-    `).join('');
-  } catch (error) {
-    console.error("Error loading quests:", error);
-  }
-}
-
-
-async function claimQuest(questId) {
-  try {
-    const res = await fetch(`http://localhost:4000/quests/claim/${questId}`, {
-      method: "POST",
-      headers: { "Authorization": `Bearer ${token}` }
-    });
-    const result = await res.json();
-    
-    if (result.success) {
-      alert(result.message);
-      loadQuests();
-      loadUserData(); // Refresh stats
+        `).join('');
+      }
+    } catch (error) {
+      console.error("Error loading quests:", error);
     }
-  } catch (error) {
-    console.error("Error claiming quest:", error);
   }
-}
 
-async function buyItem(itemType) {
-  const prices = { strength: 50, health: 30, stamina: 50 };
-  const price = prices[itemType];
-  
-  try {
-    const userRes = await fetch("http://localhost:4000/profile", {
-      headers: { "Authorization": `Bearer ${token}` }
-    });
-    const user = await userRes.json();
-    
-    if (user.gold < price) {
-      alert("Not enough gold!");
-      return;
-    }
-    
-    // Update user stats (you'd need to create this endpoint)
-    alert(`Purchased ${itemType} potion! This would update your stats.`);
-  } catch (error) {
-    console.error("Error buying item:", error);
-  }
-}
-
-// Load game data when page loads
-document.addEventListener("DOMContentLoaded", () => {
-  loadUserData();
-  setTimeout(loadQuests, 1000); // Load quests after user data
-});
+  // Load game data when page loads - use setTimeout to avoid duplicate loading
+  document.addEventListener("DOMContentLoaded", () => {
+    // Already loaded by main script, just ensure quests load
+    setTimeout(loadQuests, 1000);
+  });
 </script>
 
 </body>
 </html>
+
