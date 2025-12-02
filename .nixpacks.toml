@@ -1,0 +1,11 @@
+[phases.setup]
+cmds = ["npm ci"]
+
+[phases.install]
+cmds = ["npm install"]
+
+[phases.build]
+cmds = ["echo 'Building FitQuest...'"]
+
+[start]
+cmd = "node server.js"
