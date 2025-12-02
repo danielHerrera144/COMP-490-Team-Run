@@ -166,6 +166,29 @@
     window.location.href = "login.html";
   }
 
+    function setEnemyImage(enemyName) {
+  const container = document.getElementById("enemyImageContainer");
+  
+  const enemyImageMap = {
+    "The Lazy Dragon": "lazyDragon.jpg",
+    "Procrastination Golem": "procrastinationGolem.jpg",
+    "Motivation Slayer": "motivationSlayer.jpg",
+    "Couch Potato Titan": "couchPotatoTitan.jpg"
+  };
+  
+  const imageFile = enemyImageMap[enemyName] || "placeholder-enemy.jpg";
+  
+  // Use relative path that works on Railway
+  const imageUrl = `/assets/${imageFile}`;
+  
+  container.innerHTML = `
+    <img src="${imageUrl}" 
+         alt="${enemyName}" 
+         class="w-48 h-48 mx-auto rounded-lg object-cover border-4 border-white/20 shadow-lg"
+         onerror="this.onerror=null; this.src='https://via.placeholder.com/192x192/666666/FFFFFF?text=${enemyName}'">
+  `;
+}
+
   let userData = null;
   let currentBattle = null;
 
@@ -394,3 +417,4 @@
 </body>
 
 </html>
+
