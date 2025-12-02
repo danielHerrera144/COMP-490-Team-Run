@@ -11,26 +11,60 @@ import fs from 'fs';
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
 
+// ====== PORT CONFIGURATION (FIXED FOR RAILWAY) ======
+const PORT = parseInt(process.env.PORT) || 4000;
+const HOST = '0.0.0.0'; // Railway requires this
+
 // ====== EXPRESS APP SETUP ======
-const app = express();  // Define app FIRST!
-app.use(cors());
+const app = express();
+
+// ====== CORS CONFIGURATION ======
+const corsOptions = {
+  origin: [
+    'http://localhost:4000',
+    'http://localhost:3000',
+    'https://*.up.railway.app'
+  ],
+  credentials: true,
+  optionsSuccessStatus: 200
+};
+app.use(cors(corsOptions));
 app.use(express.json());
 
 // ====== STATIC FILE SERVING ======
-// Serve assets folder
 app.use('/assets', express.static(join(__dirname, 'assets')));
+app.use(express.static(__dirname));
+
+// ====== ROUTES FOR HTML PAGES ======
+app.get('/', (req, res) => {
+  res.sendFile(join(__dirname, 'login.html'));
+});
+
+app.get('/dashboard', (req, res) => {
+  res.sendFile(join(__dirname, 'dashboard.html'));
+});
+
+app.get('/battle', (req, res) => {
+  res.sendFile(join(__dirname, 'battle.html'));
+});
+
+app.get('/workout', (req, res) => {
+  res.sendFile(join(__dirname, 'workout.html'));
+});
 
 // Serve HTML files from root
 app.use(express.static(__dirname));
 
 // ====== DATABASE CONNECTION ======
-mongoose.connect(process.env.MONGODB_URI, {
+const MONGODB_URI = process.env.MONGODB_URI || 'mongodb://localhost:27017/fitquest';
+
+mongoose.connect(MONGODB_URI, {
   useNewUrlParser: true,
   useUnifiedTopology: true,
-});
+})
+.then(() => console.log('✅ Connected to MongoDB'))
+.catch(err => console.error('❌ MongoDB connection error:', err));
 
-// ====== PORT CONFIGURATION ====== //
-const PORT = process.env.PORT || 4000;
 
 // ====== MONGOOSE CONNECTION ======
 mongoose.connect(process.env.MONGODB_URI || 'mongodb://localhost:27017/fitquest', {
@@ -726,6 +760,19 @@ app.get("/level-progress", authenticateToken, async (req, res) => {
   }
 });
 
+// ====== HEALTH CHECK ENDPOINT (REQUIRED FOR RAILWAY) ======
+app.get('/health', (req, res) => {
+  res.json({ status: 'OK', timestamp: new Date().toISOString() });
+});
+
+// ====== START SERVER (FIXED FOR RAILWAY) ======
+app.listen(PORT, HOST, () => {
+  console.log(`🚀 FitQuest server running at http://${HOST}:${PORT}`);
+  console.log(`📁 Environment: ${process.env.NODE_ENV || 'development'}`);
+  console.log(`🗄️  Database: ${MONGODB_URI.includes('localhost') ? 'Local' : 'Cloud'}`);
+});
+
 app.listen(PORT, '0.0.0.0', () =>
   console.log(`✅ FitQuest server running on port ${PORT}`)
 );
+
