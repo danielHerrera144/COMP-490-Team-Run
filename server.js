@@ -64,6 +64,15 @@ app.get('/workout', (req, res) => {
   res.sendFile(join(__dirname, 'workout.html'));
 });
 
+// Health check endpoint
+app.get('/health', (req, res) => {
+  res.status(200).json({ 
+    status: 'healthy',
+    timestamp: new Date().toISOString(),
+    service: 'FitQuest API'
+  });
+});
+
 // ====== DATABASE CONNECTION ======
 const MONGODB_URI = process.env.MONGODB_URI || 'mongodb://localhost:27017/fitquest';
 
