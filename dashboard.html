@@ -87,6 +87,37 @@
       </div>
     </section>
 
+    <!-- AI Coach Section -->
+<section class="mb-8">
+  <h3 class="text-lg font-semibold mb-4">🤖 AI Coach</h3>
+  <div class="stat-card">
+    <div id="coachMessages" class="h-48 overflow-y-auto mb-3 space-y-2 bg-black/20 rounded-lg p-3">
+      <div class="text-center text-gray-400 text-sm">💬 Ask Coach AI anything about fitness or your character!</div>
+    </div>
+    <div class="flex gap-2">
+      <input type="text" id="coachInput" placeholder="Ask Coach AI something..." 
+             class="flex-1 bg-black/30 rounded-lg px-3 py-2 border border-white/10 focus:outline-none focus:border-purple-500">
+      <button onclick="askCoach()" class="bg-purple-600 hover:bg-purple-500 px-4 py-2 rounded-lg font-semibold transition">
+        Ask
+      </button>
+    </div>
+    <div class="text-xs text-gray-400 mt-2">
+      💡 Try: "What workouts should I do?" or "How can I level up faster?"
+    </div>
+  </div>
+</section>
+
+<!-- AI Workout Recommendations -->
+<section class="mb-8">
+  <h3 class="text-lg font-semibold mb-4">🎯 AI Workout Recommendations</h3>
+  <div id="recommendationsContainer" class="space-y-4">
+    <div class="stat-card text-center">
+      <div class="text-2xl mb-2">🤖</div>
+      <div>Loading personalized recommendations...</div>
+    </div>
+  </div>
+</section>
+    
     <!-- Recent Activity -->
 <section class="mb-8">
   <h3 class="text-lg font-semibold mb-4">Recent Activity</h3>
@@ -628,6 +659,205 @@
     // Already loaded by main script, just ensure quests load
     setTimeout(loadQuests, 1000);
   });
+
+// ====== AI COACH FUNCTIONS ======
+async function askCoach() {
+  const input = document.getElementById('coachInput');
+  const message = input.value.trim();
+  
+  if (!message) return;
+  
+  // Add user message to chat
+  addCoachMessage('You', message, 'user');
+  input.value = '';
+  
+  // Show typing indicator
+  const typingId = addTypingIndicator();
+  
+  try {
+    const res = await fetch(`${API_BASE}/api/ai-coach`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${token}`
+      },
+      body: JSON.stringify({ message })
+    });
+    
+    const data = await res.json();
+    removeTypingIndicator(typingId);
+    
+    if (data.success) {
+      addCoachMessage('Coach AI', data.reply, 'coach');
+    } else {
+      addCoachMessage('Coach AI', 'Sorry, I had trouble understanding that. Try asking about workouts or your stats!', 'coach');
+    }
+  } catch (error) {
+    console.error('AI Coach error:', error);
+    removeTypingIndicator(typingId);
+    addCoachMessage('Coach AI', 'Connection issue. I\'m still here to help! What would you like to know? 💪', 'coach');
+  }
+}
+
+function addCoachMessage(sender, text, type) {
+  const container = document.getElementById('coachMessages');
+  const div = document.createElement('div');
+  div.className = type === 'user' ? 'text-right' : 'text-left';
+  div.innerHTML = `
+    <div class="inline-block max-w-[80%] ${type === 'user' ? 'bg-indigo-600' : 'bg-gray-700'} rounded-lg px-3 py-2 mb-1">
+      <span class="text-xs opacity-70">${sender}</span>
+      <div class="text-sm">${text}</div>
+    </div>
+  `;
+  container.appendChild(div);
+  container.scrollTop = container.scrollHeight;
+}
+
+function addTypingIndicator() {
+  const container = document.getElementById('coachMessages');
+  const id = 'typing-' + Date.now();
+  const div = document.createElement('div');
+  div.id = id;
+  div.className = 'text-left';
+  div.innerHTML = `
+    <div class="inline-block bg-gray-700 rounded-lg px-3 py-2">
+      <div class="flex gap-1">
+        <span class="w-2 h-2 bg-gray-400 rounded-full animate-bounce" style="animation-delay: 0ms"></span>
+        <span class="w-2 h-2 bg-gray-400 rounded-full animate-bounce" style="animation-delay: 150ms"></span>
+        <span class="w-2 h-2 bg-gray-400 rounded-full animate-bounce" style="animation-delay: 300ms"></span>
+      </div>
+    </div>
+  `;
+  container.appendChild(div);
+  container.scrollTop = container.scrollHeight;
+  return id;
+}
+
+function removeTypingIndicator(id) {
+  const element = document.getElementById(id);
+  if (element) element.remove();
+}
+
+// Allow Enter key to submit
+document.getElementById('coachInput')?.addEventListener('keypress', function(e) {
+  if (e.key === 'Enter') {
+    askCoach();
+  }
+});
+
+// ====== AI WORKOUT RECOMMENDATIONS ======
+async function loadRecommendations() {
+  try {
+    const res = await fetch(`${API_BASE}/api/recommendations`, {
+      headers: { 'Authorization': `Bearer ${token}` }
+    });
+    
+    const data = await res.json();
+    
+    if (!data.success) {
+      throw new Error('Failed to load recommendations');
+    }
+    
+    const container = document.getElementById('recommendationsContainer');
+    
+    // Show motivational message first
+    let html = `
+      <div class="stat-card bg-gradient-to-r from-purple-900/50 to-indigo-900/50 border-purple-500/30">
+        <div class="flex items-center gap-3 mb-2">
+          <div class="text-2xl">🤖</div>
+          <div class="font-semibold text-purple-300">AI Analysis</div>
+        </div>
+        <p class="text-sm">${data.motivationalMessage}</p>
+        <div class="flex gap-3 mt-2 text-xs text-gray-400">
+          <span>⚔️ Strength: ${data.statsAnalysis.strength}</span>
+          <span>💨 Stamina: ${data.statsAnalysis.stamina}</span>
+          <span>🏃 Agility: ${data.statsAnalysis.agility}</span>
+          <span>📊 Streak: ${data.statsAnalysis.workoutStreak} workouts (14d)</span>
+        </div>
+      </div>
+    `;
+    
+    // Add each recommendation
+    data.recommendations.forEach(rec => {
+      const borderColor = rec.focus === 'strength' ? 'border-l-red-500' : 
+                          rec.focus === 'stamina' ? 'border-l-blue-500' : 
+                          rec.focus === 'agility' ? 'border-l-green-500' : 'border-l-purple-500';
+      
+      html += `
+        <div class="stat-card border-l-4 ${borderColor}">
+          <div class="flex justify-between items-start mb-3">
+            <div>
+              <h4 class="font-bold text-lg">${rec.name}</h4>
+              <p class="text-sm opacity-70">${rec.reason}</p>
+            </div>
+            <span class="text-yellow-400 text-sm font-semibold">+${rec.estimatedXp} XP</span>
+          </div>
+          <div class="space-y-2 mb-3">
+            ${rec.exercises.map(ex => `
+              <div class="flex items-center gap-2 text-sm">
+                <span class="text-xl">${ex.icon}</span>
+                <span class="font-medium">${ex.name}:</span>
+                <span>${ex.reps} ${ex.unit} × ${ex.sets} sets</span>
+                <span class="text-xs opacity-50">${ex.description}</span>
+              </div>
+            `).join('')}
+          </div>
+          <button onclick="logRecommendedWorkout(${JSON.stringify(rec.exercises[0])})" 
+                  class="w-full bg-green-600 hover:bg-green-500 py-2 rounded font-semibold transition">
+            💪 Log ${rec.exercises[0].name}
+          </button>
+        </div>
+      `;
+    });
+    
+    container.innerHTML = html;
+    
+  } catch (error) {
+    console.error('Error loading recommendations:', error);
+    document.getElementById('recommendationsContainer').innerHTML = `
+      <div class="stat-card text-center">
+        <div class="text-2xl mb-2">⚠️</div>
+        <div>Unable to load recommendations. Check your connection.</div>
+        <button onclick="loadRecommendations()" class="mt-2 bg-indigo-600 px-3 py-1 rounded text-sm">Retry</button>
+      </div>
+    `;
+  }
+}
+
+async function logRecommendedWorkout(exercise) {
+  if (!exercise) return;
+  
+  try {
+    const res = await fetch(`${API_BASE}/log-workout`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${token}`
+      },
+      body: JSON.stringify({
+        name: exercise.name,
+        reps: exercise.reps,
+        weight: 0,
+        sets: exercise.sets
+      })
+    });
+    
+    const data = await res.json();
+    
+    if (data.success) {
+      alert(`✅ ${exercise.name} logged! +${data.xpEarned} XP earned!`);
+      loadUserData(); // Refresh stats
+      loadRecommendations(); // Refresh recommendations
+    } else {
+      alert('Failed to log workout. Please try again.');
+    }
+  } catch (error) {
+    console.error('Error logging workout:', error);
+    alert('Error logging workout. Please try again.');
+  }
+}
+
+  
 </script>
 
 </body>
