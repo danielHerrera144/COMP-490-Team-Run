@@ -938,7 +938,7 @@ app.post("/api/ai-coach", authenticateToken, async (req, res) => {
     }
     
     // Use Gemini AI
-    const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
+    const model = genAI.getGenerativeModel({ model: "gemini-1.0-pro" });
     
     const prompt = `
       You are "Coach AI" for FitQuest, a fitness gamification app.
