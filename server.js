@@ -951,7 +951,7 @@ Respond as Coach AI:`;
 
     // Call Groq API
     const completion = await groqClient.chat.completions.create({
-      model: "llama-3.3-70b-specdec",  // Fastest model on Groq
+      model: "llama-3.3-70b-versatile",  // Fastest model on Groq
       messages: [
         { role: "system", content: systemPrompt },
         { role: "user", content: message }
