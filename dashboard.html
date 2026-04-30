@@ -555,12 +555,13 @@
 
   // Load all data when page loads
   document.addEventListener("DOMContentLoaded", () => {
-    loadUserData();
-    loadRecentActivities();
-    loadTodayHydration();
-    loadLevelProgress();
-    setTimeout(loadQuests, 1000);
-  });
+  loadUserData();
+  loadRecentActivities();
+  loadTodayHydration();
+  loadLevelProgress();
+  setTimeout(loadQuests, 1000);
+  setTimeout(loadRecommendations, 1500);  // ← ADD THIS LINE
+});
 </script>
 
   <!-- Quests Section -->
