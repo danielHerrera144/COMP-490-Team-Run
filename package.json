@@ -10,15 +10,16 @@
     "build": "echo 'Building server...'",
     "install-deps": "npm install"
   },
-"dependencies": {
-  "express": "^4.18.2",
-  "mongoose": "^7.0.0",
-  "bcrypt": "^5.1.0",
-  "jsonwebtoken": "^9.0.0",
-  "cors": "^2.8.5",
-  "dotenv": "^16.0.3",
-  "@google/generative-ai": "^0.21.0"
-},
+  "dependencies": {
+    "express": "^4.18.2",
+    "mongoose": "^7.0.0",
+    "bcrypt": "^5.1.0",
+    "jsonwebtoken": "^9.0.0",
+    "cors": "^2.8.5",
+    "dotenv": "^16.0.3",
+    "@google/generative-ai": "^0.21.0",
+    "openai": "^4.77.0"
+  },
   "devDependencies": {
     "nodemon": "^2.0.22"
   },
