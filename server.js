@@ -26,15 +26,6 @@ app.use(cors({
 }));
 app.use(express.json());
 
-// ====== HEALTH CHECK (MUST BE EARLY!) ======
-app.get('/health', (req, res) => {
-  res.status(200).json({ 
-    status: 'healthy',
-    timestamp: new Date().toISOString(),
-    service: 'FitQuest API'
-  });
-});
-
 // ====== STATIC FILE SERVING ======
 app.use('/assets', express.static(join(__dirname, 'assets')));
 app.use(express.static(__dirname));
