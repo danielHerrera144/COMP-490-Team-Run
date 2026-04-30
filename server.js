@@ -6,7 +6,7 @@ import bcrypt from "bcrypt";
 import jwt from "jsonwebtoken";
 import { fileURLToPath } from 'url';
 import { dirname, join } from 'path';
-import { GoogleGenerativeAI } from "@google/generative-ai";
+import OpenAI from 'openai';
 
 
 const __filename = fileURLToPath(import.meta.url);
@@ -67,13 +67,17 @@ app.get('/health', (req, res) => {
 });
 
 // ====== GEMINI AI INITIALIZATION ======
-let genAI = null;
-if (process.env.GEMINI_API_KEY) {
-  genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
-  console.log('🤖 Gemini AI initialized');
+let groqClient = null;
+if (process.env.GROQ_API_KEY) {
+  groqClient = new OpenAI({
+    apiKey: process.env.GROQ_API_KEY,
+    baseURL: 'https://api.groq.com/openai/v1'
+  });
+  console.log('🚀 Groq AI initialized');
 } else {
-  console.log('⚠️ Gemini API key not found. AI Coach will use fallback mode.');
+  console.log('⚠️ Groq API key not found. AI Coach will use fallback mode.');
 }
+
 
 // ====== DATABASE CONNECTION ======
 const MONGODB_URI = process.env.MONGODB_URI || 'mongodb://localhost:27017/fitquest';
@@ -884,7 +888,7 @@ app.get("/api/recommendations", authenticateToken, async (req, res) => {
   }
 });
 
-// Gemini AI Coach
+// ====== GROQ AI COACH ======
 app.post("/api/ai-coach", authenticateToken, async (req, res) => {
   try {
     const { message } = req.body;
@@ -894,7 +898,7 @@ app.post("/api/ai-coach", authenticateToken, async (req, res) => {
       return res.status(404).json({ success: false, message: "User not found" });
     }
     
-    // Get user stats summary for context
+    // Get user stats for context
     const recentWorkouts = user.workouts.slice(-5).map(w => w.name).join(", ");
     const lastWorkout = user.workouts[user.workouts.length - 1];
     let lastWorkoutDays = "never";
@@ -905,31 +909,13 @@ app.post("/api/ai-coach", authenticateToken, async (req, res) => {
     }
     
     const xpToNextLevel = (user.level * 100) - (user.xp % 100);
-    
-    // Check if Gemini is available
-    if (!genAI) {
-      // Smart fallback responses based on user context
-      let fallbackReply = "";
-      
-      if (message.toLowerCase().includes("workout") || message.toLowerCase().includes("exercise")) {
-        const weakest = user.stats.strength <= user.stats.stamina && user.stats.strength <= user.stats.agility ? "strength" :
+    const weakestStat = user.stats.strength <= user.stats.stamina && user.stats.strength <= user.stats.agility ? "strength" :
                         user.stats.stamina <= user.stats.agility ? "stamina" : "agility";
-        fallbackReply = `Based on your stats, I'd recommend focusing on ${weakest} exercises! Your ${weakest} is ${user.stats[weakest]}. Try squats for strength, planks for stamina, or lunges for agility. 💪`;
-      } else if (message.toLowerCase().includes("battle") || message.toLowerCase().includes("fight")) {
-        fallbackReply = `For battles, your strength (${user.stats.strength}) affects damage dealt. Do strength workouts to hit harder! Also, keep your health up with potions from the shop. ⚔️`;
-      } else if (message.toLowerCase().includes("level") || message.toLowerCase().includes("xp")) {
-        fallbackReply = `You're Level ${user.level}! Only ${xpToNextLevel} more XP to reach Level ${user.level + 1}. Complete workouts and win battles to earn XP! 🎯`;
-      } else if (message.toLowerCase().includes("water") || message.toLowerCase().includes("hydrate")) {
-        fallbackReply = `Hydration gives you XP! Log your water intake to stay healthy and earn rewards. Aim for 8 cups a day! 💧`;
-      } else {
-        const greetings = [
-          `Hey ${user.heroName}! Your ${user.stats.strength} strength, ${user.stats.stamina} stamina, and ${user.stats.agility} agility are looking good. Keep training to level up! 🎮`,
-          `Ready to get stronger, ${user.heroName}? You're only ${xpToNextLevel} XP away from your next level! Let's go! 🔥`,
-          `Great to see you! Last workout was ${lastWorkoutDays}. Consistency is key to building your character! 💪`
-        ];
-        fallbackReply = greetings[Math.floor(Math.random() * greetings.length)];
-      }
-      
+    
+    // Check if Groq is available
+    if (!groqClient) {
+      // Smart fallback responses
+      const fallbackReply = generateFallbackResponse(message, user, weakestStat, xpToNextLevel);
       return res.json({
         success: true,
         reply: fallbackReply,
@@ -937,57 +923,112 @@ app.post("/api/ai-coach", authenticateToken, async (req, res) => {
       });
     }
     
-    // Use Gemini AI
-    const model = genAI.getGenerativeModel({ model: "gemini-2.0-flash" });
-    
-    const prompt = `
-      You are "Coach AI" for FitQuest, a fitness gamification app.
-      
-      PLAYER PROFILE:
-      - Hero Name: ${user.heroName}
-      - Level: ${user.level}
-      - XP to next level: ${xpToNextLevel}
-      - Strength: ${user.stats.strength}
-      - Stamina: ${user.stats.stamina}
-      - Agility: ${user.stats.agility}
-      - Health: ${user.stats.health}/100
-      - Gold: ${user.gold}
-      - Recent Workouts: ${recentWorkouts || "No workouts yet"}
-      - Last workout: ${lastWorkoutDays}
-      
-      USER QUESTION: "${message}"
-      
-      RESPONSE GUIDELINES:
-      1. Be encouraging and use their hero name
-      2. Keep responses under 150 words
-      3. Reference their stats when relevant
-      4. Give specific fitness advice
-      5. Use emojis occasionally
-      
-      Respond as Coach AI:
-    `;
-    
-    const result = await model.generateContent(prompt);
-    const response = await result.response;
-    const reply = response.text();
+    // Build the system prompt
+    const systemPrompt = `You are "Coach AI" for FitQuest, a fitness gamification app where users level up characters by doing real workouts.
+
+PLAYER PROFILE:
+- Hero Name: ${user.heroName}
+- Level: ${user.level}
+- XP to next level: ${xpToNextLevel}
+- Strength: ${user.stats.strength} (affects battle damage)
+- Stamina: ${user.stats.stamina} (affects endurance)
+- Agility: ${user.stats.agility} (affects dodge chance)
+- Health: ${user.stats.health}/100
+- Gold: ${user.gold}
+- Recent Workouts: ${recentWorkouts || "No workouts yet"}
+- Last workout: ${lastWorkoutDays}
+
+RESPONSE GUIDELINES:
+1. Be encouraging and use their hero name (${user.heroName})
+2. Keep responses under 150 words
+3. Reference their stats when relevant
+4. Give specific, actionable fitness advice
+5. Use emojis occasionally for personality
+6. If asked about their weakest stat (${weakestStat}), suggest specific exercises
+7. Keep tone friendly and motivational
+
+Respond as Coach AI:`;
+
+    // Call Groq API
+    const completion = await groqClient.chat.completions.create({
+      model: "llama-3.3-70b-specdec",  // Fastest model on Groq
+      messages: [
+        { role: "system", content: systemPrompt },
+        { role: "user", content: message }
+      ],
+      temperature: 0.7,      // Creative but not random
+      max_tokens: 500,       // Keep responses concise
+      top_p: 0.9,
+    });
+
+    const reply = completion.choices[0].message.content;
     
     res.json({
       success: true,
       reply: reply,
-      mode: "gemini"
+      mode: "groq",
+      model: "llama-3.3-70b"
     });
     
   } catch (err) {
-    console.error("AI Coach error:", err);
+    console.error("Groq AI Coach error:", err);
     
-    // Fallback response on error
+    // Get user for fallback
+    let user = null;
+    try {
+      user = await User.findOne({ email: req.user?.email });
+    } catch(e) {}
+    
+    const weakestStat = user?.stats ? 
+      (user.stats.strength <= user.stats.stamina && user.stats.strength <= user.stats.agility ? "strength" :
+       user.stats.stamina <= user.stats.agility ? "stamina" : "agility") : "strength";
+    
+    const fallbackReply = generateFallbackResponse(req.body.message, user, weakestStat, 0);
+    
     res.json({
       success: true,
-      reply: "I'm here to help! Remember: consistent workouts = stronger character. What would you like to know about your fitness journey? 💪",
+      reply: fallbackReply,
       mode: "fallback"
     });
   }
 });
+
+// Helper function for fallback responses
+function generateFallbackResponse(message, user, weakestStat, xpToNextLevel) {
+  const lowerMsg = message.toLowerCase();
+  const heroName = user?.heroName || "Champion";
+  
+  if (lowerMsg.includes("workout") || lowerMsg.includes("exercise")) {
+    if (weakestStat === "strength") {
+      return `Hey ${heroName}! Your strength (${user?.stats?.strength || 5}) needs some love. Try squats (3x12), push-ups (3x10), and lunges (3x10 each leg). Do these 3x a week and you'll see your strength go up! 💪`;
+    } else if (weakestStat === "stamina") {
+      return `${heroName}, your stamina (${user?.stats?.stamina || 5}) is your lowest stat. Try planks (hold for 30 sec x3), mountain climbers (3x15), and jumping jacks (3x20). These will boost your endurance! 🔥`;
+    } else {
+      return `Let's work on your agility, ${heroName}! Try lateral lunges (3x12 each side), high knees (3x20), and burpees (3x8). These will make you faster and more mobile! ⚡`;
+    }
+  }
+  
+  if (lowerMsg.includes("battle") || lowerMsg.includes("fight")) {
+    return `For battles, ${heroName}, your strength (${user?.stats?.strength || 5}) affects how much damage you deal. Do strength workouts to hit harder! Also, keep your health above 50 by buying potions in the shop. ⚔️`;
+  }
+  
+  if (lowerMsg.includes("level") || lowerMsg.includes("xp")) {
+    return `You're at Level ${user?.level || 1}, ${heroName}! ${xpToNextLevel > 0 ? `Only ${xpToNextLevel} more XP to Level ${(user?.level || 1) + 1}!` : "Ready for the next level!"} Complete workouts and win battles to earn XP. Every workout gives 10-100 XP! 🎯`;
+  }
+  
+  if (lowerMsg.includes("water") || lowerMsg.includes("hydrate")) {
+    return `Hydration is key, ${heroName}! Every cup of water gives you 2 XP. Aim for 8 cups daily to stay healthy and keep your character strong. Log your water intake on the dashboard! 💧`;
+  }
+  
+  // Default motivational message
+  const messages = [
+    `I'm here to help you on your fitness journey, ${heroName}! Ask me about workouts, battles, or how to level up your character. What would you like to know? 💪`,
+    `Great to see you, ${heroName}! Your ${user?.stats?.strength || 5} strength, ${user?.stats?.stamina || 5} stamina, and ${user?.stats?.agility || 5} agility are looking good. Want workout suggestions? 🔥`,
+    `Ready to get stronger, ${heroName}? I can suggest exercises that target your weakest stat (${weakestStat})! Just ask me for a workout plan! ⚡`
+  ];
+  
+  return messages[Math.floor(Math.random() * messages.length)];
+}
 
 // ====== START SERVER ======
 app.listen(PORT, HOST, () => {
