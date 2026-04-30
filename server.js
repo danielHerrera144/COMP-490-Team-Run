@@ -6,6 +6,8 @@ import bcrypt from "bcrypt";
 import jwt from "jsonwebtoken";
 import { fileURLToPath } from 'url';
 import { dirname, join } from 'path';
+import { GoogleGenerativeAI } from "@google/generative-ai";
+
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -72,6 +74,15 @@ app.get('/health', (req, res) => {
     service: 'FitQuest API'
   });
 });
+
+// ====== GEMINI AI INITIALIZATION ======
+let genAI = null;
+if (process.env.GEMINI_API_KEY) {
+  genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
+  console.log('🤖 Gemini AI initialized');
+} else {
+  console.log('⚠️ Gemini API key not found. AI Coach will use fallback mode.');
+}
 
 // ====== DATABASE CONNECTION ======
 const MONGODB_URI = process.env.MONGODB_URI || 'mongodb://localhost:27017/fitquest';
@@ -727,6 +738,263 @@ app.get("/level-progress", authenticateToken, async (req, res) => {
   } catch (err) {
     console.error("Error getting level progress:", err);
     res.status(500).json({ message: "Server error" });
+  }
+});
+
+// ====== AI ENDPOINTS ======
+
+// AI Workout Recommendations
+app.get("/api/recommendations", authenticateToken, async (req, res) => {
+  try {
+    const user = await User.findOne({ email: req.user.email });
+    
+    if (!user) {
+      return res.status(404).json({ success: false, message: "User not found" });
+    }
+    
+    // Analyze user's recent workouts (last 14 days)
+    const twoWeeksAgo = new Date();
+    twoWeeksAgo.setDate(twoWeeksAgo.getDate() - 14);
+    
+    const recentWorkouts = user.workouts.filter(w => new Date(w.date) > twoWeeksAgo);
+    
+    // Calculate which stats need improvement
+    const stats = user.stats;
+    const statsValues = [
+      { name: "Strength", value: stats.strength, 
+        workouts: recentWorkouts.filter(w => 
+          w.name.toLowerCase().includes('squat') || 
+          w.name.toLowerCase().includes('push')
+        ).length 
+      },
+      { name: "Stamina", value: stats.stamina, 
+        workouts: recentWorkouts.filter(w => 
+          w.name.toLowerCase().includes('plank') || 
+          w.name.toLowerCase().includes('crunch')
+        ).length 
+      },
+      { name: "Agility", value: stats.agility, 
+        workouts: recentWorkouts.filter(w => 
+          w.name.toLowerCase().includes('lunge') || 
+          w.name.toLowerCase().includes('jump')
+        ).length 
+      }
+    ];
+    
+    // Find weakest stat
+    const weakestStat = statsValues.reduce((a, b) => a.value < b.value ? a : b);
+    // Find stat with least recent workouts
+    const mostNeglectedStat = statsValues.reduce((a, b) => a.workouts < b.workouts ? a : b);
+    
+    // Workout library
+    const workoutLibrary = {
+      strength: [
+        { name: "Squats", baseReps: 12, icon: "🦵", description: "Build powerful legs" },
+        { name: "Push-ups", baseReps: 10, icon: "💪", description: "Upper body strength" },
+        { name: "Lunges with Weights", baseReps: 10, icon: "🏋️", description: "Leg strength and balance" }
+      ],
+      stamina: [
+        { name: "Plank", baseReps: 30, unit: "seconds", icon: "⏱️", description: "Core endurance" },
+        { name: "Crunches", baseReps: 20, icon: "🔥", description: "Ab strength" },
+        { name: "Mountain Climbers", baseReps: 20, icon: "⛰️", description: "Full body cardio" }
+      ],
+      agility: [
+        { name: "Jumping Jacks", baseReps: 25, icon: "⚡", description: "Full body cardio" },
+        { name: "High Knees", baseReps: 20, icon: "🏃", description: "Speed and coordination" },
+        { name: "Lateral Lunges", baseReps: 12, icon: "🦵↔️", description: "Side-to-side movement" }
+      ]
+    };
+    
+    // Calculate reps based on user level
+    const levelBonus = Math.floor(user.level / 2);
+    
+    // Build recommendations
+    const workoutRecommendations = [];
+    
+    // Recommendation 1: Target weakest stat
+    let focusKey = weakestStat.name.toLowerCase();
+    let exercises = workoutLibrary[focusKey] || workoutLibrary.strength;
+    let targetExercises = exercises.slice(0, 3).map(ex => ({
+      name: ex.name,
+      reps: ex.baseReps + levelBonus,
+      unit: ex.unit || "reps",
+      sets: 3,
+      icon: ex.icon,
+      description: ex.description
+    }));
+    
+    workoutRecommendations.push({
+      id: "target_weakness",
+      name: `${weakestStat.name} Booster`,
+      exercises: targetExercises,
+      reason: `Your ${weakestStat.name} (${weakestStat.value}) is your lowest stat. Building ${weakestStat.name.toLowerCase()} will make you stronger in battles!`,
+      focus: focusKey,
+      estimatedXp: Math.floor(50 + (user.level * 8) + (weakestStat.value < 10 ? 20 : 0))
+    });
+    
+    // Recommendation 2: Variety recommendation
+    let varietyKey = mostNeglectedStat.name.toLowerCase();
+    let varietyExercises = workoutLibrary[varietyKey] || workoutLibrary.strength;
+    let varietyTarget = varietyExercises.slice(0, 3).map(ex => ({
+      name: ex.name,
+      reps: ex.baseReps + Math.floor(levelBonus * 0.7),
+      unit: ex.unit || "reps",
+      sets: 3,
+      icon: ex.icon,
+      description: ex.description
+    }));
+    
+    workoutRecommendations.push({
+      id: "variety",
+      name: `${mostNeglectedStat.name} Focus`,
+      exercises: varietyTarget,
+      reason: `You haven't done many ${mostNeglectedStat.name.toLowerCase()} exercises lately. Mix it up for a well-rounded character!`,
+      focus: varietyKey,
+      estimatedXp: Math.floor(55 + (user.level * 7))
+    });
+    
+    // Add motivational message
+    const lastWorkout = user.workouts[user.workouts.length - 1];
+    let motivationalMessage = "";
+    let lastWorkoutDays = 999;
+    
+    if (lastWorkout) {
+      lastWorkoutDays = Math.floor((new Date() - new Date(lastWorkout.date)) / (1000 * 60 * 60 * 24));
+    }
+    
+    if (lastWorkoutDays === 0) {
+      motivationalMessage = "🔥 Amazing workout today! Keep the momentum going!";
+    } else if (lastWorkoutDays === 1) {
+      motivationalMessage = "💪 Great consistency! Don't break your streak!";
+    } else if (lastWorkoutDays <= 3) {
+      motivationalMessage = "⚡ Time to get back in the gym! Your character is waiting!";
+    } else {
+      motivationalMessage = "🌟 Your character misses you! Time to level up!";
+    }
+    
+    res.json({
+      success: true,
+      motivationalMessage,
+      recommendations: workoutRecommendations,
+      statsAnalysis: {
+        strength: stats.strength,
+        stamina: stats.stamina,
+        agility: stats.agility,
+        weakest: weakestStat.name,
+        mostNeglected: mostNeglectedStat.name,
+        workoutStreak: recentWorkouts.length,
+        daysSinceLastWorkout: lastWorkoutDays
+      }
+    });
+    
+  } catch (err) {
+    console.error("Recommendations error:", err);
+    res.status(500).json({ success: false, message: "Error generating recommendations" });
+  }
+});
+
+// Gemini AI Coach
+app.post("/api/ai-coach", authenticateToken, async (req, res) => {
+  try {
+    const { message } = req.body;
+    const user = await User.findOne({ email: req.user.email });
+    
+    if (!user) {
+      return res.status(404).json({ success: false, message: "User not found" });
+    }
+    
+    // Get user stats summary for context
+    const recentWorkouts = user.workouts.slice(-5).map(w => w.name).join(", ");
+    const lastWorkout = user.workouts[user.workouts.length - 1];
+    let lastWorkoutDays = "never";
+    
+    if (lastWorkout) {
+      lastWorkoutDays = Math.floor((new Date() - new Date(lastWorkout.date)) / (1000 * 60 * 60 * 24));
+      lastWorkoutDays = lastWorkoutDays === 0 ? "today" : `${lastWorkoutDays} days ago`;
+    }
+    
+    const xpToNextLevel = (user.level * 100) - (user.xp % 100);
+    
+    // Check if Gemini is available
+    if (!genAI) {
+      // Smart fallback responses based on user context
+      let fallbackReply = "";
+      
+      if (message.toLowerCase().includes("workout") || message.toLowerCase().includes("exercise")) {
+        const weakest = user.stats.strength <= user.stats.stamina && user.stats.strength <= user.stats.agility ? "strength" :
+                        user.stats.stamina <= user.stats.agility ? "stamina" : "agility";
+        fallbackReply = `Based on your stats, I'd recommend focusing on ${weakest} exercises! Your ${weakest} is ${user.stats[weakest]}. Try squats for strength, planks for stamina, or lunges for agility. 💪`;
+      } else if (message.toLowerCase().includes("battle") || message.toLowerCase().includes("fight")) {
+        fallbackReply = `For battles, your strength (${user.stats.strength}) affects damage dealt. Do strength workouts to hit harder! Also, keep your health up with potions from the shop. ⚔️`;
+      } else if (message.toLowerCase().includes("level") || message.toLowerCase().includes("xp")) {
+        fallbackReply = `You're Level ${user.level}! Only ${xpToNextLevel} more XP to reach Level ${user.level + 1}. Complete workouts and win battles to earn XP! 🎯`;
+      } else if (message.toLowerCase().includes("water") || message.toLowerCase().includes("hydrate")) {
+        fallbackReply = `Hydration gives you XP! Log your water intake to stay healthy and earn rewards. Aim for 8 cups a day! 💧`;
+      } else {
+        const greetings = [
+          `Hey ${user.heroName}! Your ${user.stats.strength} strength, ${user.stats.stamina} stamina, and ${user.stats.agility} agility are looking good. Keep training to level up! 🎮`,
+          `Ready to get stronger, ${user.heroName}? You're only ${xpToNextLevel} XP away from your next level! Let's go! 🔥`,
+          `Great to see you! Last workout was ${lastWorkoutDays}. Consistency is key to building your character! 💪`
+        ];
+        fallbackReply = greetings[Math.floor(Math.random() * greetings.length)];
+      }
+      
+      return res.json({
+        success: true,
+        reply: fallbackReply,
+        mode: "fallback"
+      });
+    }
+    
+    // Use Gemini AI
+    const model = genAI.getGenerativeModel({ model: "gemini-2.5-flash" });
+    
+    const prompt = `
+      You are "Coach AI" for FitQuest, a fitness gamification app.
+      
+      PLAYER PROFILE:
+      - Hero Name: ${user.heroName}
+      - Level: ${user.level}
+      - XP to next level: ${xpToNextLevel}
+      - Strength: ${user.stats.strength}
+      - Stamina: ${user.stats.stamina}
+      - Agility: ${user.stats.agility}
+      - Health: ${user.stats.health}/100
+      - Gold: ${user.gold}
+      - Recent Workouts: ${recentWorkouts || "No workouts yet"}
+      - Last workout: ${lastWorkoutDays}
+      
+      USER QUESTION: "${message}"
+      
+      RESPONSE GUIDELINES:
+      1. Be encouraging and use their hero name
+      2. Keep responses under 150 words
+      3. Reference their stats when relevant
+      4. Give specific fitness advice
+      5. Use emojis occasionally
+      
+      Respond as Coach AI:
+    `;
+    
+    const result = await model.generateContent(prompt);
+    const response = await result.response;
+    const reply = response.text();
+    
+    res.json({
+      success: true,
+      reply: reply,
+      mode: "gemini"
+    });
+    
+  } catch (err) {
+    console.error("AI Coach error:", err);
+    
+    // Fallback response on error
+    res.json({
+      success: true,
+      reply: "I'm here to help! Remember: consistent workouts = stronger character. What would you like to know about your fitness journey? 💪",
+      mode: "fallback"
+    });
   }
 });
 
