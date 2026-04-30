@@ -1035,7 +1035,7 @@ app.listen(PORT, HOST, () => {
   console.log(`🚀 FitQuest server running at http://${HOST}:${PORT}`);
   console.log(`📁 Environment: ${process.env.NODE_ENV || 'development'}`);
   console.log(`🗄️  Database: ${MONGODB_URI.includes('localhost') ? 'Local' : 'Cloud'}`);
-  console.log(`🤖 AI Coach: ${genAI ? 'Gemini AI Active' : 'Fallback Mode'}`);
+  console.log(`🤖 AI Coach: ${groqClient ? 'Groq AI Active' : 'Fallback Mode'}`);
   console.log(`❤️  Health check: http://${HOST}:${PORT}/health`);
 });
 
